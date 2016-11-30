@@ -132,8 +132,7 @@ needed to be uncompresssed before storing in the database.  Here's the
 conversion script that was used:
 
 .. include:: convert.py
-   :code: python
-   :number-lines:
+   :literal:
 
 For the most part, this is mostly a simple script that converted data
 in pickle format to JSON format. The special handling is in the block
@@ -159,7 +158,7 @@ has text in ``text``, ``title``, and ``description`` columns.  For
 performed the text extraction:
 
 .. include:: content_text.sql
-   :code: sql
+   :literal:
 
 Note that to access data, `Postgres JSON path expressions
 <https://www.postgresql.org/docs/9.6/static/functions-json.html>`_
