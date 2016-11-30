@@ -129,10 +129,35 @@ necessary. For example, some objects stored text documents as blobs
 and cached the text data from these documents in special cache
 objects.  The data in these objects was compressed using zlib and
 needed to be uncompresssed before storing in the database.  Here's the
-conversion script that was used:
+conversion script that was used::
 
-.. include:: convert.py
-   :literal:
+  import binascii
+  import json
+  import zlib
+  from j1m.xpickle.jsonpickle import record
+
+  outp = open('data.json', 'w')
+  i = 0
+  for line in open('data.pickles'):
+      zoid, p = line.strip().split('\t')
+      p = binascii.a2b_hex(p[3:])
+      c, j = record(p)
+      c = json.loads(c)['name']
+      if c == 'karl.content.models.adapters._CachedData':
+          state = json.loads(j)
+          text = zlib.decompress(state['data']['hex'].decode('hex'))
+          try:
+              text = text.decode(
+                  state.get('encoding', 'ascii')).replace('\x00', '')
+          except UnicodeDecodeError:
+              text = ''
+          j = json.dumps(dict(text=text))
+
+      j = j.replace('\\', '\\\\') # postgres issue
+      outp.write('\t'.join((zoid, c, j)) + '\n')
+      i += 1
+
+  outp.close()
 
 For the most part, this is mostly a simple script that converted data
 in pickle format to JSON format. The special handling is in the block
@@ -155,10 +180,66 @@ has text in ``text``, ``title``, and ``description`` columns.  For
 ``CommunityFile`` objects, text had to be loaded from separate
 ``_CachedData`` objects. A `PL/pgSQL
 <https://www.postgresql.org/docs/9.6/static/plpgsql.html>`_ function
-performed the text extraction:
+performed the text extraction::
 
-.. include:: content_text.sql
-   :literal:
+  create or replace function content_text(class_name varchar, state jsonb)
+    returns tsvector as $$
+  declare
+    title varchar;
+    description varchar;
+    text varchar;
+    textv tsvector;
+    hoid varchar;
+    r object_json%ROWTYPE;
+  begin
+    if class_name = 'karl.models.profile.Profile' then
+      text :=
+        coalesce(state #>> '{"__name__"}', '')
+        || ' ' || coalesce(state #>> '{"firstname"}', '')
+        || ' ' || coalesce(state #>> '{"lastname"}', '')
+        || ' ' || coalesce(state #>> '{"email"}', '')
+        || ' ' || coalesce(state #>> '{"phone"}', '')
+        || ' ' || coalesce(state #>> '{"extension"}', '')
+        || ' ' || coalesce(state #>> '{"department"}', '')
+        || ' ' || coalesce(state #>> '{"position"}', '')
+        || ' ' || coalesce(state #>> '{"organization"}', '')
+        || ' ' || coalesce(state #>> '{"location"}', '')
+        || ' ' || coalesce(state #>> '{"country"}', '')
+        || ' ' || coalesce(state #>> '{"website"}', '')
+        || ' ' || coalesce(state #>> '{"languages"}', '')
+        || ' ' || coalesce(state #>> '{"office"}', '')
+        || ' ' || coalesce(state #>> '{"room_no"}', '')
+        || ' ' || coalesce(state #>> '{"biography"}', '');
+    elseif class_name = 'karl.content.interfaces.ICommunityFile' then
+      hoid := state #>> '{"_extracted_data", "id", 1}';
+      if hoid is not null then
+        select cls, state
+        from object_json where lpad(to_hex(zoid), 16, '0'::text) = hoid
+        into class_name, state;
+        if class_name != 'karl.content.models.adapters._CachedData' then
+          raise 'bad data in CommunityFile % %', hoid, class_name;
+        end if;
+        return content_text(class_name, state);
+      end if;
+      text := '';
+    else
+      text := coalesce(state #>> '{"text"}', '');
+    end if;
+
+    textv := to_tsvector(text);
+
+    if state ? 'title' then
+      textv := textv
+        || setweight(to_tsvector(state #>> '{"title"}'), 'A')
+        || setweight(to_tsvector(coalesce(state #>> '{"description"}', '')), 'B');
+    else
+      textv := textv
+        || setweight(to_tsvector(coalesce(state #>> '{"description"}', '')), 'A');
+    end if;
+
+    return textv;
+  end
+  $$ language plpgsql immutable;
 
 Note that to access data, `Postgres JSON path expressions
 <https://www.postgresql.org/docs/9.6/static/functions-json.html>`_
