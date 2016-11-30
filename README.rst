@@ -83,7 +83,7 @@ JSON conversion
 
 Data were converted to JSON using the new `xpickle
 <https://github.com/jimfulton/xpickle>`_, which was created as part of
-this experiment [#xmlpickle]_. Data were converted from a pickle
+this experiment [#xmlpicklef]_. Data were converted from a pickle
 serialization to a JSON serialization.
 
 Some things to note about the conversion:
@@ -132,8 +132,8 @@ needed to be uncompresssed before storing in the database.  Here's the
 conversion script that was used:
 
 .. include:: convert.py
-   code: python
-   number-lines:
+   :code: python
+   :number-lines:
 
 For the most part, this is mostly a simple script that converted data
 in pickle format to JSON format. The special handling is in the block
@@ -159,7 +159,7 @@ has text in ``text``, ``title``, and ``description`` columns.  For
 performed the text extraction:
 
 .. include:: content_text.sql
-   code: sql
+   :code: sql
 
 Note that to access data, `Postgres JSON path expressions
 <https://www.postgresql.org/docs/9.6/static/functions-json.html>`_
@@ -185,7 +185,7 @@ ________________
 
 
 
-.. [#xmlpickle] This was derived from a much older `xmlpickle
+.. [#xmlpicklef] This was derived from a much older `xmlpickle
    <https://github.com/zopefoundation/zope.xmlpickle>`_ project.
 
 .. [#ghost] In ZODB, ghost objects are objects without state. When a
