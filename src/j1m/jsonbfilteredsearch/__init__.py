@@ -11,11 +11,11 @@ with recursive
       union all
          select allowed.{docid}, {docs}.{docid} as id,
                 {get_parent_id}({docs}.{state}),
-                check_access({docs}.{state}, array{principals}, '{permission}')
+                {check_access}({docs}.{state}, array{principals}, '{permission}')
                 {extra}
          from allowed, {docs}
          where allowed.allowed is null and
-               allowed.parent_id = {docs}.{docid}
+               allowed.parent_id = {parent_expr}
     )
 select {docid} {extra} from allowed where allowed
 """
@@ -23,7 +23,7 @@ select {docid} {extra} from allowed where allowed
 def filteredsearch(
     cursor, search, permission, principals, extra='',
     docid='docid', docs='docs', state='state', get_parent_id='get_parent_id',
-    check_access='check_access',
+    check_access='check_access', parent_expr=None,
     ):
     principals = repr(list(principals)).replace(',)', ')')
     sql = template.format(
@@ -36,6 +36,8 @@ def filteredsearch(
         state=state,
         get_parent_id=get_parent_id,
         check_access=check_access,
+        parent_expr=
+        parent_expr or "{docs}.{docid}".format(docs=docs, docid=docid),
         )
     if cursor is None:
         print(sql)
