@@ -187,7 +187,7 @@ Some things to note about the conversion:
 In many cases, we chose to be lossy in favor of making the JSON data
 easier to use in Postgres.
 
-The conversion process consistented of the following steps::
+The conversion process consistented of the following steps:
 
 #. Data were exported from the RelStorage ``object_state`` table:
 
