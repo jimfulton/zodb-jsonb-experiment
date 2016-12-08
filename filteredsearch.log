@@ -1,0 +1,85 @@
+CREATE FUNCTION
+Timing is on.
+base search
+ count
+-------
+   532
+(1 row)
+
+Time: 8.741 ms
+ count
+-------
+   532
+(1 row)
+
+Time: 3.179 ms
+ count
+-------
+   532
+(1 row)
+
+Time: 3.189 ms
+                                                                        QUERY PLAN
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=157.15..157.16 rows=1 width=0) (actual time=3.062..3.063 rows=1 loops=1)
+   ->  Bitmap Heap Scan on object_json  (cost=152.63..157.15 rows=1 width=0) (actual time=2.781..3.033 rows=532 loops=1)
+         Recheck Cond: ((get_community_id_i(cls, state) = ':community_id'::text) AND (content_text_i(cls, state) @@ '':text''::tsquery))
+         Heap Blocks: exact=522
+         ->  BitmapAnd  (cost=152.63..152.63 rows=1 width=0) (actual time=2.723..2.723 rows=0 loops=1)
+               ->  Bitmap Index Scan on object_json_community_id_i_idx  (cost=0.00..18.97 rows=838 width=0) (actual time=1.834..1.834 rows=18213 loops=1)
+                     Index Cond: (get_community_id_i(cls, state) = ':community_id'::text)
+               ->  Bitmap Index Scan on object_json_content_text_idx  (cost=0.00..133.42 rows=12422 width=0) (actual time=0.175..0.175 rows=1283 loops=1)
+                     Index Cond: (content_text_i(cls, state) @@ '':text''::tsquery)
+ Planning time: 0.099 ms
+ Execution time: 3.080 ms
+(11 rows)
+
+Time: 3.361 ms
+filtered search
+ count
+-------
+    94
+(1 row)
+
+Time: 35.795 ms
+ count
+-------
+    94
+(1 row)
+
+Time: 31.126 ms
+ count
+-------
+    94
+(1 row)
+
+Time: 30.909 ms
+                                                                                  QUERY PLAN
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=242.82..242.83 rows=1 width=0) (actual time=30.648..30.649 rows=1 loops=1)
+   ->  CTE Scan on allowed  (cost=242.52..242.74 rows=6 width=8) (actual time=3.010..30.636 rows=94 loops=1)
+         Filter: allowed
+         Rows Removed by Filter: 587
+         CTE search_results
+           ->  Bitmap Heap Scan on object_json  (cost=152.63..157.15 rows=1 width=533) (actual time=2.732..3.384 rows=532 loops=1)
+                 Recheck Cond: ((get_community_id_i(cls, state) = ':community_id'::text) AND (content_text_i(cls, state) @@ '':text''::tsquery))
+                 Heap Blocks: exact=522
+                 ->  BitmapAnd  (cost=152.63..152.63 rows=1 width=0) (actual time=2.675..2.675 rows=0 loops=1)
+                       ->  Bitmap Index Scan on object_json_community_id_i_idx  (cost=0.00..18.97 rows=838 width=0) (actual time=1.794..1.794 rows=18213 loops=1)
+                             Index Cond: (get_community_id_i(cls, state) = ':community_id'::text)
+                       ->  Bitmap Index Scan on object_json_content_text_idx  (cost=0.00..133.42 rows=12422 width=0) (actual time=0.167..0.167 rows=1283 loops=1)
+                             Index Cond: (content_text_i(cls, state) @@ '':text''::tsquery)
+         CTE allowed
+           ->  Recursive Union  (cost=0.00..85.37 rows=11 width=517) (actual time=2.804..30.359 rows=681 loops=1)
+                 ->  CTE Scan on search_results  (cost=0.00..0.28 rows=1 width=40) (actual time=2.803..27.986 rows=532 loops=1)
+                 ->  Nested Loop  (cost=0.00..8.49 rows=1 width=517) (actual time=0.026..0.543 rows=37 loops=4)
+                       ->  WorkTable Scan on allowed allowed_1  (cost=0.00..0.20 rows=1 width=16) (actual time=0.002..0.013 rows=37 loops=4)
+                             Filter: (allowed IS NULL)
+                             Rows Removed by Filter: 133
+                       ->  Index Scan using object_json_zoid_idx on object_json object_json_1  (cost=0.00..8.02 rows=1 width=509) (actual time=0.002..0.002 rows=1 loops=149)
+                             Index Cond: (zoid = allowed_1.parent_id)
+ Planning time: 0.240 ms
+ Execution time: 30.712 ms
+(24 rows)
+
+Time: 31.380 ms
