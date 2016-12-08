@@ -196,7 +196,8 @@ The conversion process consistented of the following steps:
      \copy object_state (zoid, state) to STDOUT
 
    Here we used the `psql \copy command
-   <https://www.postgresql.org/docs/9.4/static/app-psql.html>`_ [#copy]_ to
+   <https://www.postgresql.org/docs/9.4/static/app-psql.html>`_
+   [#copy]_ to
    copy the object ids and pickles.
 
 #. A `conversion script <convert.py>`_ was used to convert pickles to
