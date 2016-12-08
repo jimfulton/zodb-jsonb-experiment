@@ -195,9 +195,9 @@ The conversion process consistented of the following steps:
 
      \copy object_state (zoid, state) to STDOUT
 
-   Here we used the `psql \copy
+   Here we used the `psql \\copy
    <https://www.postgresql.org/docs/9.4/static/app-psql.html>`_ command
-   [#copy]_ to
+   [#postgrescopy]_ to
    copy the object ids and pickles.
 
 #. A `conversion script <convert.py>`_ was used to convert pickles to
@@ -296,7 +296,7 @@ result.
 
 A `template <src/j1m/jsonbfilteredsearch/__init__.py>` was used to
 generate a filtered search query from a base search query.  The
-generated query [#variableified]_::
+generated query::
 
   with recursive
        search_results as (
@@ -380,7 +380,7 @@ maintaining the tables using Python application code.
    non-ghost. Any persistent objects referenced in the state are
    created as ghosts, unless theor already in memory.
 
-.. [#copy] The postgres `copy
+.. [#postgrescopy] The postgres `copy
    <https://www.postgresql.org/docs/9.4/static/sql-copy.html>`_
    mechanism provides an efficient way to do bulk data export and
    import.
