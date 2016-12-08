@@ -189,7 +189,9 @@ easier to use in Postgres.
 
 The conversion process consistented of the following steps::
 
-#. Data were exported from the RelStorage ``object_state`` table::
+#. Data were exported from the RelStorage ``object_state`` table:
+
+   ::
 
      \copy object_state (zoid, state) to STDOUT
 
