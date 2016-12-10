@@ -15,10 +15,10 @@ exsisting infrastructure for storing data in an `RDBMS
 
 RelStorage stores data in `Python pickle format
 <file:///Users/jim/s/python/python-3.5.2-docs-html/library/pickle.html#module-pickle>`_,
-making it impractical to use or even view in the RDBMS.
+making it impractical to use or even view in the hosting RDBMS.
 
 As is typical in ZODB applications, indexing is provided via BTrees
-stored in the RDBMS or using an internal indexing facility.  The
+stored in the RDBMS or using an external indexing facility.  The
 search capabilities of the RDBMS aren't leveraged directly.
 
 Postgres 9.2 introduced a JSON data type and Postgres 9.4 introduced
@@ -43,31 +43,73 @@ A proof-of-concept experiment was carried out to exlore the utility of
 storing data as JSON to make it more available in Postgres, while
 still supporting use in ZODB.
 
-Because, as noted in the previous section, conversion from pickle to
-JSON is lossy, the JSON data augments rather than replaces the pickle data.
+Test application
+----------------
+
+The application used to test the approach is a content-management
+system build with `Pyramid
+<http://docs.pylonsproject.org/projects/pyramid/en/latest/>`_.  This
+is an application that has been in production for some time.  Analysis
+was performed against a snapshot of the application's database.
+
+Some points of interest about the application:
+
+- The database (snapshot) has 7.3 million objects.
+
+  - 6.3 million of the objects are BTree (or BTree component) objects,
+    used primarily for indexing.
+
+  - .55 million objects are content objects
+
+  - Remaining objects are various support objects, such as blobs.
+
+  Postgres-level indexes have the potential to reduce database size
+  substantially.
+
+- Content objects are arranged hierarchically. Collections (folders)
+  are used support traversal from ancestors to descendents. Parent
+  references (``__parent__`` attributes) support traversal from
+  descendents to ancestors.
+
+  Near the top of the object hierarchy are ``Community`` objects and
+  data are typically accessed by community.
+
+  A access control mechanism allows access control lists (ACLs) to be defined
+  at various places in the hierarchy. Access to a particular content
+  objects is granted based on ACLs stored on the object and its ancestors.
+
+- Most content is self contained, with relevent data, such as text to
+  be searched, residing in content objects directly.
+
+  An exception is CommunityFile objects that represent files uploaded
+  into the system. The files are stored in ZODB blobs and the text
+  contet of the files is cached in separate ``_CachedData`` objects.
 
 Database schema
 ---------------
 
-For this short experiment, Pickle data in a RelStorage table were
+For this experiment, Pickle data in a RelStorage table were
 converted to JSON and loaded into a separate table.
 
 Indexes were added to the tabel to support search. Here's a
 description of the table and the indexes created::
 
-
            Table "public.object_json"
-     Column   |       Type        | Modifiers
+     Column   |       Type        | Modifiers 
   ------------+-------------------+-----------
    zoid       | bigint            | not null
-   class_name | character varying |
-   state      | jsonb             |
+   class_name | character varying | 
+   state      | jsonb             | 
   Indexes:
       "object_json_pkey" PRIMARY KEY, btree (zoid)
+      "object_json_cached_data_id_idx" btree (cached_data_id(class_name, state))
       "object_json_community_id_idx" btree (get_community_id(class_name, state))
       "object_json_content_text_idx" gin (content_text(class_name, state))
       "object_json_json_idx" gin (state)
-
+  Triggers:
+      force_index_of_community_file_trigger
+        AFTER INSERT OR UPDATE ON object_json FOR EACH ROW
+        EXECUTE PROCEDURE force_index_of_community_file()
 
 ZODB data records contain two pickles, a class pickle and a state
 pickle. The class pickle contains the class name and any arguments
@@ -125,9 +167,66 @@ object_json_json_idx
 
       state @> '{"docid": 123456}'
 
+object_json_cached_data_id_idx
+  This index supports search for ``CommunityFile`` objects that referenced
+  particular ``_CachedData``.  It's an expression index that used a
+  `cached_data_id function <cached_data_id.sql>`_ to extract
+  ``_CachedData`` object ids.
+
+  See `Cross-object indexing`_ below.
+
+A `trigger
+<https://www.postgresql.org/docs/9.4/static/plpgsql-trigger.html>`_
+was used to deal with the fact that text for ``CommunityFile`` objects
+was stored in associated ``_CachedData`` objects.  See `Cross-object
+indexing`_ below.
+
+Cross-object indexing
+---------------------
+
+There were 2 important cases where data needed to index an object
+required accessing other objects:
+
+- The community id for an object is derived from an ancestor and
+  required inspeciting all of the ancestors up to the ``Community``
+  ancestor.
+
+- ``CommunityFile`` objects stre their text in separate
+  ``_CachedData`` objects.
+
+In both of these cases, we have to traverse objects to get the data we
+need. Because we used expression indexes, we do this traversal when
+indexes are build and the traversal is essecntially cached for us.
+
+Consider the ``CommunityFile`` case, for example. When we add or
+update a ``CommunityFile``, the text index is updated.  If the
+associated ``_CachedData`` object is added or updated later, its data
+won't be reflected in the index. At the application level, these
+objects are typically added or updated at the same time, in the same
+transaction. When ZODB and RelStorage commits these changes, it may do
+so in any order [#undefined-order]_, because order isn't considered to
+be important.  If we're unlucky, the ``CommunityFile`` will be updated
+before its ``_CachedData``.
+
+To address this issue, I used a `database trigger function
+<force_index_of_community_file.sql>`_ to force reindexing of
+``CommunityFile`` objects whenever ``_CachedData`` objects were added
+or updated.  It leveraged an expression index,
+``object_json_cached_data_id_idx``, to quickly find ``CommunityFile``
+objects to reindex.
+
+The content hierarchy is typically static, and descendents are
+typically added in later transactions than their ancestors.  However,
+bulk loading or creation of hieratchies could cause the same problem
+and require a trigger to make sure that objects were indexed properly
+if any of theit ancestors were created/updated late.
+
 
 JSON conversion
 ---------------
+
+Because conversion from pickle to JSON is lossy, the JSON data
+augments rather than replaces the pickle data.
 
 Data were converted to JSON using the new `xpickle
 <https://github.com/jimfulton/xpickle>`_, which was created as part of
@@ -370,7 +469,9 @@ would be to maintain them in the database using triggers.  It's
 unclear if this would be any more reliable or less of a pain than
 maintaining the tables using Python application code.
 
-
+.. [#undefined-order] To be more precise, the order is
+   undefined. There may actually be a predictable order, but that
+   order is an implementation detail that is subject to change.
 
 .. [#xmlpicklef] This was derived from a much older `xmlpickle
    <https://github.com/zopefoundation/zope.xmlpickle>`_ project.
