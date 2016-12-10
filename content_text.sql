@@ -33,9 +33,12 @@ begin
       if class_name != 'karl.content.models.adapters._CachedData' then
         raise 'bad data in CommunityFile % %', hoid, class_name;
       end if;
-      return content_text(class_name, state);
+      text := coalesce(state #>> '{"text"}', '');
+    else
+      text := '';
     end if;
-    text := '';
+  elseif class_name = 'karl.content.models.adapters._CachedData' then
+    return null;
   else
     text := coalesce(state #>> '{"text"}', '');
   end if;
