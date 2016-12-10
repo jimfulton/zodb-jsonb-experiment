@@ -1,8 +1,6 @@
 create or replace function content_text(class_name varchar, state jsonb)
   returns tsvector as $$
 declare
-  title varchar;
-  description varchar;
   text varchar;
   textv tsvector;
   hoid bigint;
