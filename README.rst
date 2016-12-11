@@ -10,7 +10,7 @@ Introduction
 `RelStorage <http://relstorage.readthedocs.io/en/latest/>`_ provides a
 relational-database backed storage for `ZODB <http://www.zodb.org>`_.
 It's especially useful when there is either a requirement to or
-exsisting infrastructure for storing data in an `RDBMS
+existing infrastructure for storing data in an `RDBMS
 <https://en.wikipedia.org/wiki/Relational_database_management_system>`_.
 
 RelStorage stores data in `Python pickle format
@@ -26,7 +26,7 @@ a more efficient JSON data type, `jsonb
 <https://www.postgresql.org/docs/9.6/static/datatype-json.html>`_.
 JSON is similar in many ways to pickles, and pickle data can be
 represented as JSON. Like pickle, JSON is dynamic in nature, providing
-much more flexability than traditional RDBMS tables.  If ZODB data
+much more flexibility than traditional RDBMS tables.  If ZODB data
 were stored in JSON format, then they could be viewed and, more
 importantly, searched in Postgres directly.
 
@@ -39,7 +39,7 @@ JSON too difficult to leverage.
 Proof of concept
 ================
 
-A proof-of-concept experiment was carried out to exlore the utility of
+A proof-of-concept experiment was carried out to explore the utility of
 storing data as JSON to make it more available in Postgres, while
 still supporting use in ZODB.
 
@@ -56,10 +56,10 @@ Some points of interest about the application:
 
 - The database (snapshot) has 7.3 million objects.
 
-  - 6.3 million of the objects are BTree (or BTree component) objects,
+  - 6.3 million (86%) of the objects are BTree (or BTree component) objects,
     used primarily for indexing.
 
-  - .55 million objects are content objects
+  - .55 million objects (7.5%) are content objects
 
   - Remaining objects are various support objects, such as blobs.
 
@@ -67,7 +67,7 @@ Some points of interest about the application:
   substantially.
 
 - Content objects are arranged hierarchically. Collections (folders)
-  are used support traversal from ancestors to descendents. Parent
+  are used to support traversal from ancestors to descendents. Parent
   references (``__parent__`` attributes) support traversal from
   descendents to ancestors.
 
@@ -78,12 +78,22 @@ Some points of interest about the application:
   at various places in the hierarchy. Access to a particular content
   objects is granted based on ACLs stored on the object and its ancestors.
 
-- Most content is self contained, with relevent data, such as text to
+- Most content is self contained, with relevant data, such as text to
   be searched, residing in content objects directly.
 
-  An exception is CommunityFile objects that represent files uploaded
+  An exception is ``CommunityFile`` objects that represent files uploaded
   into the system. The files are stored in ZODB blobs and the text
-  contet of the files is cached in separate ``_CachedData`` objects.
+  content of the files is cached in separate ``_CachedData`` objects.
+
+Timing data
+-----------
+
+Timing data given here should be mainly interpreted in relative
+terms, and perhaps as rough indications of possible performance.
+Times could vary widely depending on deployment consideration like
+network speeds, disk and CPU speeds, memory, and so on.  Even on the single
+system used here, times varied widely from run to run even when runs
+were performed a few seconds apart.
 
 Database schema
 ---------------
@@ -91,7 +101,7 @@ Database schema
 For this experiment, Pickle data in a RelStorage table were
 converted to JSON and loaded into a separate table.
 
-Indexes were added to the tabel to support search. Here's a
+Indexes were added to the table to support search. Here's a
 description of the table and the indexes created::
 
            Table "public.object_json"
@@ -127,7 +137,7 @@ dependent:
 object_json_community_id_idx
   In this application, data are organized by "community", and most
   searches are qualified by a community id.  To get the community id
-  for an object, you have to walk up a containment hierienchy until
+  for an object, you have to walk up a containment hierarchy until
   you find a community object.  A `PL/pgSQL
   <https://www.postgresql.org/docs/9.4/static/plpgsql.html>`_
   function, `get_community_id <get_community_id.sql>`_ was constructed
@@ -137,27 +147,28 @@ object_json_community_id_idx
 
   The function used to create this index is fairly expensive as it may
   make multiple queries to find a community object.  The function is
-  normally only used when the index is updated. During search like::
+  normally only used when the index is updated. During a search like::
 
      select zoid from object_json
      where get_community_id(class_name, state) = '123456'
 
   The expression: ``get_community_id(class_name, state)`` isn't
-  actually evaluated, but is used to select the index I created.
-  This provides a lot of power when data to ve searched required
-  complex computation.
+  actually evaluated, but is used to select the index.  This provides
+  a lot of power when data to be searched require complex computation.
 
 object_json_content_text_idx
   This index is an inverted index supporting full-text search.  It's
-  an expresssion index that indexes the text-extraction function,
+  an expression index that indexes the text-extraction function,
   `content_text <content_text.sql>`_.  This too is a non-trivial
   computation that extracts text in an object-type specific way, and,
   in some cases, uses queries to get an object's text from a different
   database record.
 
 object_json_json_idx
-  This is a generic index that allows a varoety pf general queried
-  against the JSON data.  Some example queries:
+  This is a `generic JSON index
+  <https://www.postgresql.org/docs/9.4/static/datatype-json.html>`_
+  that allows a variety of general queries against the JSON data.
+  Some example queries supported by the index:
 
   - Find all objects that have access control information::
 
@@ -168,8 +179,8 @@ object_json_json_idx
       state @> '{"docid": 123456}'
 
 object_json_cached_data_id_idx
-  This index supports search for ``CommunityFile`` objects that referenced
-  particular ``_CachedData``.  It's an expression index that used a
+  This index supports search for ``CommunityFile`` objects that reference
+  particular ``_CachedData`` objects.  It's an expression index that used a
   `cached_data_id function <cached_data_id.sql>`_ to extract
   ``_CachedData`` object ids.
 
@@ -177,8 +188,8 @@ object_json_cached_data_id_idx
 
 A `trigger
 <https://www.postgresql.org/docs/9.4/static/plpgsql-trigger.html>`_
-was used to deal with the fact that text for ``CommunityFile`` objects
-was stored in associated ``_CachedData`` objects.  See `Cross-object
+is used to deal with the fact that text for ``CommunityFile`` objects
+is stored in associated ``_CachedData`` objects.  See `Cross-object
 indexing`_ below.
 
 Cross-object indexing
@@ -188,15 +199,15 @@ There were 2 important cases where data needed to index an object
 required accessing other objects:
 
 - The community id for an object is derived from an ancestor and
-  required inspeciting all of the ancestors up to the ``Community``
+  required inspecting all of the ancestors up to the ``Community``
   ancestor.
 
-- ``CommunityFile`` objects stre their text in separate
+- ``CommunityFile`` objects store their text in separate
   ``_CachedData`` objects.
 
 In both of these cases, we have to traverse objects to get the data we
 need. Because I used expression indexes, we do this traversal when
-indexes are build and the traversal is essecntially cached for us.
+indexes are build and the traversal is cached for us.
 
 Consider the ``CommunityFile`` case, for example. When we add or
 update a ``CommunityFile``, the text index is updated.  If the
@@ -217,9 +228,9 @@ objects to reindex.
 
 The content hierarchy is typically static, and descendents are
 typically added in later transactions than their ancestors.  However,
-bulk loading or creation of hieratchies could cause the same problem
+bulk loading or creation of hierarchies could cause the same problem
 and require a trigger to make sure that objects were indexed properly
-if any of theit ancestors were created/updated late.
+if any of their ancestors were created/updated late(r).
 
 
 JSON conversion
@@ -229,13 +240,13 @@ Because conversion from pickle to JSON is lossy, the JSON data
 augments rather than replaces the pickle data.
 
 Data were converted to JSON using the new `xpickle
-<https://github.com/jimfulton/xpickle>`_, which was created as part of
+<https://github.com/jimfulton/xpickle>`_ package, which was created as part of
 this experiment [#xmlpicklef]_. Data were converted from a pickle
 serialization to a JSON serialization.
 
 A number of `changes
 <https://github.com/jimfulton/xpickle/compare/wild>`_ were made in the
-course of the experiment that, as of this time, weren't integrated
+course of the experiment that, as of this time, aren't integrated
 with the master branch, in part due to some outstanding issues.
 
 Some things to note about the conversion:
@@ -259,15 +270,15 @@ Some things to note about the conversion:
 
   Reference objects are very hard to deal with when using JSON data.
   They break simple JSON queries and they make data extraction
-  functions a lot more complicated.
+  functions much more complicated.
 
   One of the open changes made to ``xpickle`` for this analysis was to
   disable this feature. Fortunately, none of the database records used
   in this analysis had cycles.  In ZODB databases, object cycles
-  typically cross persistent-object boundaries and are rare withing
+  typically cross persistent-object boundaries and are rare within
   database records.
 
-- Pickle supports references between persistent objects (accross
+- Pickle supports references between persistent objects (across
   database records.  These were represented in JSON as
   persistent-reference objects::
 
@@ -283,10 +294,7 @@ Some things to note about the conversion:
   objects.  The `get_community_id <get_community_id.sql>`_ function
   used these properties to find an object's community object and it's id.
 
-In many cases, I chose to be lossy in favor of making the JSON data
-easier to use in Postgres.
-
-The conversion process consistented of the following steps:
+The conversion process consisted of the following steps:
 
 #. Data were exported from the RelStorage ``object_state`` table:
 
@@ -302,11 +310,11 @@ The conversion process consistented of the following steps:
 #. A `conversion script <convert.py>`_ was used to convert pickles to
    JSON.
 
-   There were some cases where application-specific adjustments wre
+   There were some cases where application-specific adjustments are
    necessary. For example, some objects stored text documents as blobs
    and cached the text data from these documents in special cache
    objects.  The data in these objects was compressed using zlib and
-   needed to be uncompresssed before storing in the database. See
+   needed to be uncompressed before storing in the database. See
    `convert.py <convert.py>`_.
 
    For the most part, this is mostly a simple script that converted data
@@ -345,11 +353,11 @@ search, I performed a basic search::
     where content_text(class_name, state)  @@ :text::tsquery and
           get_community_id(class_name, state) = :community_id
 
-That searched for objects containg a text term (``:text`` above) and
+that searched for objects containing a text term (``:text`` above) and
 with a given community id.  Remember that we had expression indexes
 for the text and community id (``:community_id``).
 
-The search performance was comparied to searching a dedicated text
+The search performance was compared to searching a dedicated text
 and community_id table::
 
                          Table "public.pgtextindex"
@@ -369,7 +377,7 @@ and community_id table::
       "pgtextindex_index" gin (text_vector)
 
 Tests searches were run multiple times directly on the database
-server. Absolute times aren't really important, but for comparison:
+server.
 
 ===============  ===========================
 Search type      Search time in milliseconds
@@ -378,28 +386,28 @@ JSON                      3.4
 Dedicated table           2.0
 ===============  ===========================
 
-It's surprizing to see a difference, given that indexes are used in
-both cases, still the performance seems pretty reasonable in bothe
+It's surprising to see a difference, given that indexes are used in
+both cases, still the performance seems pretty reasonable in both
 cases.
 
 The advantage of using JSON, despite the poorer performance is that it
 isn't necessary to maintain and update a separate table. The dedicated
 table used here was maintaining by application logic that sometimes
-failed. The JSON search results containied data that was missing from
+failed. The JSON search results contained data that was missing from
 the dedicated table.
 
 In addition, a security-filtered search was performed. When searching
 for content in a content-management system, you often want to filter
 results to those for which a request's associated principals (user and
 their groups) have a needed permission.  The security filtering uses
-access-control information stored at some notes in the object
+access-control information stored at some nodes in the object
 hierarchy [#not-flattened]_.  This required using a recursive query to
-find and evaluate the access control lists relevent to a search
+find and evaluate the access control lists relevant to a search
 result.
 
-A `template <src/j1m/jsonbfilteredsearch/__init__.py>` was used to
+A `template <src/j1m/jsonbfilteredsearch/__init__.py>`_ was used to
 generate a filtered search query from a base search query.  The
-generated query::
+generated query was::
 
   with recursive
        search_results as (
@@ -443,8 +451,8 @@ The filtered search was compared to a `similar filtered search
 <https://github.com/jimfulton/acl-filtered-search#recursive-search-representing-acls-as-postgres-arrays>`_
 that used dedicated ``parent`` and ``acl`` tables.
 
-Again the absolute values aren't important but fot relative
-comparison, the search timese were:
+Again the absolute values aren't important but for relative
+comparison, the search times were:
 
 ===============  ===========================
 Search type      Search time in milliseconds
@@ -462,16 +470,14 @@ The slowness of the JSON-based approach seems to be due to the fact
 that at run time, we're evaluating lots of JSON dynamic expressions.
 
 Despite the difference in performance, it appears that the JSON-based
-search is probably fast enough that the advantages of mnot having to
-maintian separate tables may justify the added cost.
+search is probably fast enough that the advantages of not having to
+maintain separate tables may justify the added cost.
 
 Using triggers to maintain support tables
 _________________________________________
 
 Another alternative to maintaining support tables in the application
-would be to maintain them in the database using triggers.  It's
-unclear if this would be any more reliable or less of a pain than
-maintaining the tables using Python application code.
+would be to maintain them in the database using triggers.
 
 Insert performance
 ------------------
@@ -491,12 +497,12 @@ inserted these rows back into the object_json table::
   delete from object_json where zoid >= 900000000;
   insert into object_json select * from tdata;
 
-I did this serveral times.  The shortest insert time was 140
+I did this several times.  The shortest insert time was 140
 milliseconds, .14 milliseconds per record.  I used a bulk insert
 to assess the index impact without transaction or application
 overhead.
 
-I performed a similar analyis on the ``object_state`` table to get a
+I performed a similar analysis on the ``object_state`` table to get a
 baseline for comparison::
 
   create temp table zoids as select zoid from tdata;
@@ -511,7 +517,7 @@ And I inserted::
   insert into object_state select * from pdata;
 
 I tried this several times, and it took at least 800 milliseconds (.8
-milliseconds/record). This was very surprizing.  The ``object_state``
+milliseconds/record). This was very surprising.  The ``object_state``
 used by RelStorage::
 
      Table "public.object_state"
@@ -531,7 +537,7 @@ used by RelStorage::
       TABLE "blob_chunk" CONSTRAINT "blob_chunk_fk"
       FOREIGN KEY (zoid) REFERENCES object_state(zoid) ON DELETE CASCADE
 
-This has fewer and simpler indexes than object_json.  I decided to
+has fewer and simpler indexes than object_json.  I decided to
 make a copy of the table::
 
   create temp table object_statec as select * from object_state;
@@ -541,8 +547,8 @@ inserts.  For the copy of the database the insert times were a few
 milliseconds, or a few microseconds (effectively 0) per record.
 
 The only other difference in configuration is the referencing foreign
-key constraint that could cause referencing blob check records to be
-deleted in deletion of a state record.  It was impractical to set this
+key constraint that could cause referencing blob chunk records to be
+deleted on deletion of a state record.  It was impractical to set this
 up for the copy and it seems unlikely that this would slow inserts.
 
 I suspect that the times for the original table were affected by
@@ -550,18 +556,18 @@ fragmentation of some sort.  I tried to do a full `vacuum
 <https://www.postgresql.org/docs/9.4/static/sql-vacuum.html>`_ of the
 original table. This seemed to take too long (and use too few
 computing resources), so I impatiently stopped it and did a regular
-vacuum over night. After the vacuum, the minimum insert time fell to
+vacuum overnight. After the vacuum, the minimum insert time fell to
 about 100ms (100 microseconds/record).  I may try again to do a full
 vacuum later.  Note that the database copy should be roughly
 equivalent to the full vacuum.
 
 It appears that update overhead of the new indexes is acceptable.  The
-update times are on the same order of magnituse as the existing update
+update times are on the same order of magnitude as the existing update
 times. Of course, this performance test provides only a rough
 guess at what the impact might be in production.
 
 In addition to updating indexes, pickle data must be converted to
-JSON. The observed cost of this is fairly low, ~.3 milliseconds per
+JSON. The observed cost of this is fairly low, about .3 milliseconds per
 record, and perhaps more importantly, the cost would be borne by
 clients, not the database server and would therefore not affect
 scalability.
@@ -587,7 +593,7 @@ Postgres' capability to index, leveraging expression indexes and
 search JSON data is compelling, as is the ability to see object data
 and perform generic searches using SQL.
 
-Search and update performence is good and likely to be much better
+Search and update performance is good and likely to be much better
 than with existing catalog-based search, especially considering:
 
 - Much of the work is done in C rather than Python.
@@ -624,9 +630,9 @@ Some downsides:
 .. [#ghost] In ZODB, ghost objects are objects without state. When a
    ghost object is referenced, it's state is loaded and it becomes a
    non-ghost. Any persistent objects referenced in the state are
-   created as ghosts, unless theor already in memory.
+   created as ghosts, unless their already in memory.
 
-.. [#postgrescopy] The postgres `copy
+.. [#postgrescopy] The Postgres `copy
    <https://www.postgresql.org/docs/9.4/static/sql-copy.html>`_
    mechanism provides an efficient way to do bulk data export and
    import.
