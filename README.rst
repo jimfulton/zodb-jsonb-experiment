@@ -143,7 +143,7 @@ object_json_community_id_idx
      where get_community_id(class_name, state) = '123456'
 
   The expression: ``get_community_id(class_name, state)`` isn't
-  actually evaluated, but is used to select the index we created.
+  actually evaluated, but is used to select the index I created.
   This provides a lot of power when data to ve searched required
   complex computation.
 
@@ -195,7 +195,7 @@ required accessing other objects:
   ``_CachedData`` objects.
 
 In both of these cases, we have to traverse objects to get the data we
-need. Because we used expression indexes, we do this traversal when
+need. Because I used expression indexes, we do this traversal when
 indexes are build and the traversal is essecntially cached for us.
 
 Consider the ``CommunityFile`` case, for example. When we add or
@@ -283,7 +283,7 @@ Some things to note about the conversion:
   objects.  The `get_community_id <get_community_id.sql>`_ function
   used these properties to find an object's community object and it's id.
 
-In many cases, we chose to be lossy in favor of making the JSON data
+In many cases, I chose to be lossy in favor of making the JSON data
 easier to use in Postgres.
 
 The conversion process consistented of the following steps:
@@ -294,7 +294,7 @@ The conversion process consistented of the following steps:
 
      \copy object_state (zoid, state) to STDOUT
 
-   Here we used the `psql \\copy
+   Here I used the `psql \\copy
    <https://www.postgresql.org/docs/9.4/static/app-psql.html>`_ command
    [#postgrescopy]_ to
    copy the object ids and pickles.
@@ -315,6 +315,8 @@ The conversion process consistented of the following steps:
 
      if c == 'karl.content.models.adapters._CachedData':
 
+   The conversion took about .3 milliseconds per object.
+
 #. A ``COPY`` statement was used to bulk-load the converted data::
 
      create table object_json (
@@ -330,12 +332,14 @@ The conversion process consistented of the following steps:
      create index object_json_content_text_idx on object_json
             using gin (content_text(class_name, state));
      create index object_json_json_idx on object_json using gin (state);
+     create index object_json_cached_data_id_idx on object_json
+            (cached_data_id(class_name, state));
 
 Searching
 ---------
 
 To assess the efficacy of using JSON object representations for
-search, we performed a basic search::
+search, I performed a basic search::
 
     select zoid from object_json
     where content_text(class_name, state)  @@ :text::tsquery and
@@ -468,6 +472,147 @@ Another alternative to maintaining support tables in the application
 would be to maintain them in the database using triggers.  It's
 unclear if this would be any more reliable or less of a pain than
 maintaining the tables using Python application code.
+
+Insert performance
+------------------
+
+The database design used here used several indexes and a trigger and
+requires calling non-trivial stored procedures on update.  To assess
+the impact of this, I copied 1000 content records::
+
+  create temp table tdata as
+  select zoid + 900000000 as zoid, class_name, state
+  from object_json
+  where state ? '__parent__' and state ? 'docid' limit 1000;
+
+I added an offset to the object ids to make them unique.  I then
+inserted these rows back into the object_json table::
+
+  delete from object_json where zoid >= 900000000;
+  insert into object_json select * from tdata;
+
+I did this serveral times.  The shortest insert time was 140
+milliseconds, .14 milliseconds per record.  I used a bulk insert
+to assess the index impact without transaction or application
+overhead.
+
+I performed a similar analyis on the ``object_state`` table to get a
+baseline for comparison::
+
+  create temp table zoids as select zoid from tdata;
+  create temp table pdata as
+  select zoid+900000000, tid, state_size, state
+  from object_state p
+  join toids using (zoid);
+
+And I inserted::
+
+  delete from object_state where zoid >= 900000000;
+  insert into object_state select * from pdata;
+
+I tried this several times, and it took at least 800 milliseconds (.8
+milliseconds/record). This was very surprizing.  The ``object_state``
+used by RelStorage::
+
+     Table "public.object_state"
+     Column   |  Type  | Modifiers 
+  ------------+--------+-----------
+   zoid       | bigint | not null
+   tid        | bigint | not null
+   state_size | bigint | not null
+   state      | bytea  | 
+  Indexes:
+      "object_state_pkey" PRIMARY KEY, btree (zoid)
+      "object_state_tid" btree (tid)
+  Check constraints:
+      "object_state_state_size_check" CHECK (state_size >= 0)
+      "object_state_tid_check" CHECK (tid > 0)
+  Referenced by:
+      TABLE "blob_chunk" CONSTRAINT "blob_chunk_fk"
+      FOREIGN KEY (zoid) REFERENCES object_state(zoid) ON DELETE CASCADE
+
+This has fewer and simpler indexes than object_json.  I decided to
+make a copy of the table::
+
+  create temp table object_statec as select * from object_state;
+
+I added the same indexes and check constraints, and then tried the data
+inserts.  For the copy of the database the insert times were a few
+milliseconds, or a few microseconds (effectively 0) per record.
+
+The only other difference in configuration is the referencing foreign
+key constraint that could cause referencing blob check records to be
+deleted in deletion of a state record.  It was impractical to set this
+up for the copy and it seems unlikely that this would slow inserts.
+
+I suspect that the times for the original table were affected by
+fragmentation of some sort.  I tried to do a full `vacuum
+<https://www.postgresql.org/docs/9.4/static/sql-vacuum.html>`_ of the
+original table. This seemed to take too long (and use too few
+computing resources), so I impatiently stopped it and did a regular
+vacuum over night. After the vacuum, the minimum insert time fell to
+about 100ms (100 microseconds/record).  I may try again to do a full
+vacuum later.  Note that the database copy should be roughly
+equivalent to the full vacuum.
+
+It appears that update overhead of the new indexes is acceptable.  The
+update times are on the same order of magnituse as the existing update
+times. Of course, this performance test provides only a rough
+guess at what the impact might be in production.
+
+In addition to updating indexes, pickle data must be converted to
+JSON. The observed cost of this is fairly low, ~.3 milliseconds per
+record, and perhaps more importantly, the cost would be borne by
+clients, not the database server and would therefore not affect
+scalability.
+
+It's reasonable to expect that if JSON-based indexing removed the need
+for application-level indexing using BTrees, the overall load of
+updates will be reduced, as we'll no-longer need to manage as many
+BTrees and the database size will be reduced substantially.
+
+Asynchronous updates
+____________________
+
+If synchronous updates of JSON indexes turned out to be too
+burdensome, it would be straightforward to provide asynchronous and
+nearly real-time indexing using a combination of database triggers and
+Postgres' notification system. (Such a system could also be used to
+update external indexes.)
+
+Conclusion
+==========
+
+Postgres' capability to index, leveraging expression indexes and
+search JSON data is compelling, as is the ability to see object data
+and perform generic searches using SQL.
+
+Search and update performence is good and likely to be much better
+than with existing catalog-based search, especially considering:
+
+- Much of the work is done in C rather than Python.
+
+- Search leverages Postgres' query optimization, which is far more
+  sophisticated than that used by Python catalogs.
+
+- Using Postgres indexes allows us to manage much fewer objects in the
+  database.
+
+Some downsides:
+
+- We loose a lot of the flexibility of indexing in Python:
+
+  - Object-oriented dispatch for data extraction.
+
+  - Ability to express data extraction in Python. In comparison to
+    Python, PL/pgSQL is pretty awful.  Postgres does support for
+    Python stored procedures.
+
+- We could end up with a fair bit of indexing logic in stored
+  procedures, which provides an extra maintenance burden. In the long
+  term, however, this logic would likely replace existing logic in
+  Python and might be a wash.
+
 
 .. [#undefined-order] To be more precise, the order is
    undefined. There may actually be a predictable order, but that
