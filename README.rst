@@ -74,9 +74,11 @@ Some points of interest about the application:
   Near the top of the object hierarchy are ``Community`` objects and
   data are typically accessed by community.
 
-  A access control mechanism allows access control lists (ACLs) to be defined
-  at various places in the hierarchy. Access to a particular content
-  objects is granted based on ACLs stored on the object and its ancestors.
+  A access control mechanism allows access control lists (ACLs) to be
+  defined at various places in the hierarchy. Access to a particular
+  content objects is granted based on ACLs stored on the object and
+  its ancestors.  Moreover, queries (searches, listings of content in
+  a folder, etc.) are permission filtered.
 
 - Most content is self contained, with relevant data, such as text to
   be searched, residing in content objects directly.
