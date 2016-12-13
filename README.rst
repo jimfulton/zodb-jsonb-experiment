@@ -561,7 +561,9 @@ computing resources), so I impatiently stopped it and did a regular
 vacuum overnight. After the vacuum, the minimum insert time fell to
 about 100ms (100 microseconds/record).  I may try again to do a full
 vacuum later.  Note that the database copy should be roughly
-equivalent to the full vacuum.
+equivalent to the full vacuum. Update: I did a full vacuum and insert
+times dropped to 20ms (.02ms/record), which is still much slower than
+insert times on a copy, but is at least not orders of magnitude slower.
 
 It appears that update overhead of the new indexes is acceptable.  The
 update times are on the same order of magnitude as the existing update
