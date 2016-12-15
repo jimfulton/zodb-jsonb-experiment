@@ -1,4 +1,4 @@
-name, version = 'j1m.jsonbfilteredsearch', '0'
+name, version = 'j1m.relstoragejsonsearch', '0'
 
 install_requires = ['setuptools', 'psycopg2']
 extras_require = dict(test=['manuel', 'mock', 'zope.testing'])

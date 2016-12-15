@@ -3,7 +3,7 @@ import json
 import psycopg2
 import unittest
 
-from j1m.jsonbfilteredsearch import filteredsearch
+from ..aclfilteredsearch import filteredsearch
 
 check_access = """
 create or replace function check_access(
