@@ -36,8 +36,8 @@ lossy from a type perspective. It could be made less lossy through the
 addition of additional JSON data, but doing so would likely render the
 JSON too difficult to leverage.
 
-Proof of concept
-================
+Proof of concept (Phase 0)
+==========================
 
 A proof-of-concept experiment was carried out to explore the utility of
 storing data as JSON to make it more available in Postgres, while
@@ -591,7 +591,7 @@ Postgres' notification system. (Such a system could also be used to
 update external indexes.)
 
 Conclusion
-==========
+----------
 
 Postgres' capability to index, leveraging expression indexes and
 search JSON data is compelling, as is the ability to see object data
@@ -623,6 +623,75 @@ Some downsides:
   term, however, this logic would likely replace existing logic in
   Python and might be a wash.
 
+Phase 1, initial production version
+====================================
+
+We've decided to do an initial production implementation.  The
+emphasis is on increemental changes that can be done with minimal
+changes to other packages.
+
+Plan
+----
+
+For this phase, we won't require any changes to RelStorage, which is
+in the process of launching version 2.0.  Rather, we'll using a
+separate process to update a separate table with JSON data
+asynchronously.
+
+- Table: ``object_json``
+
+  Columns:
+
+  zoid: bigint
+     ZODB object if as an integer
+
+  class_name: text
+     Persistent-object class name. Useful for type-specific logic.
+
+  class_pickle: bytea
+     A small pickle needed to instantiate ghosts.  This will be null
+     except when there are class_arguments.
+
+  state: jsonb
+     The object state.
+
+- Add a trigger on object_state that notifies: ``zodb_transaction`` with the
+  of the tid (as a string of a bigint).
+
+- Long-running process that:
+
+  - Listens for ``zodb_transaction`` notifications with poll on
+    timeout.  (It will log notifications missed, if any.)
+
+  - Populates ``object_json`` using data for new transactions from
+    ``object_state``.
+
+  - On startup, catches up any data in ``object_state`` not in
+    ``object_json`` (based on tids.)
+
+- Provide a simple query API
+
+  - Takes a postgres query that results in columns ``zoid``,
+    ``class_name`` and ``class_pickle``.
+
+  - Returns an object iterator.
+
+    - Uses `server-side cursors
+      <http://initd.org/psycopg/docs/usage.html#server-side-cursors>`_
+      to avoid copying all results to the client.
+
+    - Uses a new buffering ``map`` function that buffers function
+      application to an iterator.  This will allow us to invoke ZODB's
+      prefetch API before objects are accessed by the iterator
+      [#but-no-prefetch]_.
+
+    - We will extend ZODB's ``Connection.get`` method to accept a
+      ghost pickle so that it can create ghosts without doing database
+      loads.
+
+- Leverage query API in an application as an alternative to
+  catalog queries and compare results (accuracy and efficiency).
+
 
 .. [#undefined-order] To be more precise, the order is
    undefined. There may actually be a predictable order, but that
@@ -648,3 +717,11 @@ Some downsides:
    Alternatively, we could have copied data to descendent nodes when
    changes were made, which would have made updates much more
    expensive, but would have made reads much faster.
+
+.. [#but-no-prefetch] This may not work and we may need to do
+   something else. :) RelStorage doesn't support prefetch and it looks
+   like the RelStorage cache doesn't cache old objects, which if true,
+   would render prefetch almost useless.  An alternative would be to
+   create some sort of multi-load API.  Another option might be to
+   allow ``Connection.get()`` to accept a full state, but we'd need to
+   get the state using RelStorage's load connection.
