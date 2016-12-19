@@ -1,6 +1,6 @@
 name, version = 'j1m.relstoragejsonsearch', '0'
 
-install_requires = ['setuptools', 'psycopg2']
+install_requires = ['setuptools', 'psycopg2', 'ZODB']
 extras_require = dict(test=['manuel', 'mock', 'zope.testing'])
 
 entry_points = """
