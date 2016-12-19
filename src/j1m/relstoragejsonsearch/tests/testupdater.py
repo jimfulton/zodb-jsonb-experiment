@@ -7,6 +7,7 @@ import threading
 import traceback
 import unittest
 import ZODB.serialize
+from zope.testing.loggingsupport import InstalledHandler
 from zope.testing.wait import wait
 
 from .. import updater
@@ -31,14 +32,12 @@ class Tests(unittest.TestCase):
             ex(f.read())
 
     def tearDown(self, setup=False):
-        if not setup:
-            self.ex("notify object_state_changed, 'STOP'")
         self.ex("drop table if exists object_state cascade")
         self.ex("drop table if exists object_json cascade")
         self.ex("drop table if exists object_json_tid cascade")
         self.ex("drop function if exists notify_object_state_changed() cascade")
         if not setup:
-            self.thread.join(99999)
+            self.stop_updater()
 
     def store(self, tid, oid, **data):
         writer = ZODB.serialize.ObjectWriter()
@@ -53,6 +52,10 @@ class Tests(unittest.TestCase):
         thread.daemon = True
         thread.start()
         self.thread = thread
+
+    def stop_updater(self):
+        self.ex("notify object_state_changed, 'STOP'")
+        self.thread.join(99999)
 
     def last_tid(self, expect=None):
         self.ex("select tid from object_json_tid")
@@ -71,12 +74,30 @@ class Tests(unittest.TestCase):
             self.store(2, 1, a=1, b=1)
             self.store(2, 2, a=2, b=2)
             self.start_updater()
-            wait((lambda : self.last_tid(2)), 9, 2)
+            wait((lambda : self.last_tid(2)), 9, message=2)
             self.store(3, 2, a=3, b=3)
-            wait((lambda : self.last_tid(3)), 9, 3)
+            wait((lambda : self.last_tid(3)), 9, message=3)
             self.store(4, 2, a=4, b=4)
-            wait((lambda : self.last_tid(3)), 9, 4)
+            wait((lambda : self.last_tid(3)), 9, message=4)
+            self.stop_updater()
+            self.store(5, 3, n=3)
+            self.start_updater()
+            wait((lambda : self.last_tid(5)), 9, 5)
 
+    def test_warn_when_no_trigger(self):
+        handler = InstalledHandler(__name__.rsplit('.', 2)[0] + '.updater')
+        self.start_updater()
+        self.store(1, 1, a=1)
+        wait((lambda : self.last_tid(1)), 9, message=1)
+        self.store(2, 1, a=2)
+        wait((lambda : self.last_tid(2)), 9, message=2)
+        self.ex(
+            "drop trigger trigger_notify_object_state_changed on object_state")
+        self.store(3, 2, a=3)
+        wait((lambda : self.last_tid(3)), 99999, message=3)
+        self.assertEqual([(r.msg, r.args) for r in handler.records],
+                         [('Missed change %s', (3L,))])
+        handler.uninstall()
 
 def pr(fmt, *args):
     print(fmt % args)

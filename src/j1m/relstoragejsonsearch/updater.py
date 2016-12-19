@@ -133,7 +133,7 @@ def listener(url, timeout=30):
     curs.execute("LISTEN object_state_changed")
 
     while 1:
-        if select.select([conn], (), (), timeout) == ((), (), ()):
+        if select.select([conn], (), (), timeout) == ([], [], []):
             yield None
         else:
             conn.poll()
@@ -151,7 +151,6 @@ def main(args=None):
     ex("select tid from object_json_tid")
     [[tid]] = cursor.fetchall()
 
-    #import pdb; pdb.set_trace()
 
     catch_up(conn, ex, tid)
     first = True
