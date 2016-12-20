@@ -84,6 +84,21 @@ class Tests(unittest.TestCase):
             self.start_updater()
             wait((lambda : self.last_tid(5)), 9, 5)
 
+            # Make sure data were stored correctly:
+            self.ex(
+                """select zoid from object_json where state @> '{"b": 1}'::jsonb
+                """)
+            self.assertEqual(list(self.cursor.fetchall()), [(1,)])
+            self.ex(
+                """select zoid from object_json where state @> '{"b": 4}'::jsonb
+                """)
+            self.assertEqual(list(self.cursor.fetchall()), [(2,)])
+            self.ex(
+                """select zoid from object_json where state @> '{"n": 3}'::jsonb
+                """)
+            self.assertEqual(list(self.cursor.fetchall()), [(3,)])
+
+
     def test_warn_when_no_trigger(self):
         handler = InstalledHandler(__name__.rsplit('.', 2)[0] + '.updater')
         self.start_updater()
