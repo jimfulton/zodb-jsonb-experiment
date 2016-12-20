@@ -4,6 +4,8 @@ install_requires = ['setuptools', 'psycopg2', 'ZODB']
 extras_require = dict(test=['manuel', 'mock', 'zope.testing'])
 
 entry_points = """
+[console_scripts]
+rs-json-updater = j1m.relstoragejsonsearch.updater:main
 """
 
 from setuptools import setup
