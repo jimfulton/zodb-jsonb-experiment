@@ -22,6 +22,8 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('url', help='Postgresql connection url')
 parser.add_argument('-t', '--poll-timeout', type=int, default=30,
                     help='Change-poll timeout, in seconds')
+parser.add_argument('-m', '--transaction-size-limit', type=int, default=100000,
+                    help='Transaction size limit (aproximate)')
 
 updates_sql = """
 select zoid, tid, state from object_state where tid > %s order by tid'
@@ -36,12 +38,15 @@ do update set class_name   = excluded.class_name,
               state        = excluded.state
 """
 
+def bytea_hex(bytes):
+    return b'\\x' + binascii.b2a_hex(bytes)
+
 def jsonify(item):
     zoid, p = item
     p = p[:] # Convert read buffer to bytes
     klass, class_pickle_length, state = record(p)
     klass = json.loads(klass)
-    class_pickle = b'\\x' + binascii.b2a_hex(p[:class_pickle_length])
+    class_pickle = bytea_hex(p[:class_pickle_length])
     if isinstance(klass, list):
         klass, args = klass
         if isinstance(klass, list):
@@ -68,8 +73,8 @@ def jsonify(item):
 
     return zoid, class_name, class_pickle, state
 
-def catch_up(conn, ex, start_tid):
-    tid = start_tid
+def catch_up(conn, ex, start_tid, limit):
+    tid = ltid = start_tid
     ex('begin')
     try:
         updates = conn.cursor('object_state_updates')
@@ -83,11 +88,26 @@ def catch_up(conn, ex, start_tid):
             ex('rollback')
             return
 
-        while True:
+        n = 0
+        looping = True
+        while looping:
             data = [d[1] for d in zip(range(updates.itersize), updates)]
             if not data:
                 break
             tid = data[-1][0]
+            if tid != ltid:
+                if n > limit:
+                    # Need to be careful to stop on tid boundary
+                    tid = ltid
+                    data = [d for d in data if d[0] == ltid]
+                    logger.info("Catch up halting after %s updates, tid %s",
+                                n + len(data), str(ltid))
+                    if data:
+                        looping = False
+                    else:
+                        break
+                else:
+                    ltid = tid
 
             # First, try a bulk insert.
             try:
@@ -98,6 +118,7 @@ def catch_up(conn, ex, start_tid):
                         for d in data])
                    )
                 ex('release savepoint s')
+                n += len(data)
             except Exception:
                 # Dang, fall back to individual insert so we can log
                 # individual errors:
@@ -108,8 +129,10 @@ def catch_up(conn, ex, start_tid):
                         ex(insert_sql % updates.mogrify('(%s, %s, %s, %s)',
                                                         jsonify(d[1:])))
                         ex('release savepoint s')
+                        n += 1
                     except Exception:
                         ex("rollback to savepoint s")
+                        import pdb; pdb.set_trace()
                         raise
                         logger.exception("Failed tid=%s, zoid=%s",
                                          *d[:2])
@@ -152,12 +175,12 @@ def main(args=None):
     [[tid]] = cursor.fetchall()
 
 
-    catch_up(conn, ex, tid)
+    catch_up(conn, ex, tid, options.transaction_size_limit)
     first = True
     for payload in listener(options.url, options.poll_timeout):
         if payload == 'STOP':
             break
-        new_tid = catch_up(conn, ex, tid)
+        new_tid = catch_up(conn, ex, tid, options.transaction_size_limit)
         if new_tid > tid:
             tid = new_tid
             if payload is None and not first:

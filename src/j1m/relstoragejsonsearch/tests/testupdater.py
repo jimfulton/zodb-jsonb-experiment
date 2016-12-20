@@ -41,14 +41,15 @@ class Tests(unittest.TestCase):
 
     def store(self, tid, oid, **data):
         writer = ZODB.serialize.ObjectWriter()
-        p = writer.serialize(O(data))
+        p = updater.bytea_hex(writer.serialize(O(data)))
         self.ex("insert into object_state values(%s, %s, %s)"
                 " on conflict (zoid)"
                 " do update set tid=excluded.tid, state=excluded.state",
                 (oid, tid, p))
 
     def start_updater(self):
-        thread = threading.Thread(target=updater.main, args=(['', '-t1'],))
+        thread = threading.Thread(
+            target=updater.main, args=(['', '-t1', '-m200'],))
         thread.daemon = True
         thread.start()
         self.thread = thread
@@ -56,6 +57,10 @@ class Tests(unittest.TestCase):
     def stop_updater(self):
         self.ex("notify object_state_changed, 'STOP'")
         self.thread.join(99999)
+
+    def drop_trigger(self):
+        self.ex("drop trigger trigger_notify_object_state_changed"
+                " on object_state")
 
     def last_tid(self, expect=None):
         self.ex("select tid from object_json_tid")
@@ -104,15 +109,45 @@ class Tests(unittest.TestCase):
         wait((lambda : self.last_tid(1)), 9, message=1)
         self.store(2, 1, a=2)
         wait((lambda : self.last_tid(2)), 9, message=2)
-        self.ex(
-            "drop trigger trigger_notify_object_state_changed on object_state")
+        self.drop_trigger()
         self.store(3, 2, a=3)
-        wait((lambda : self.last_tid(3)), 99999, message=3)
+        wait((lambda : self.last_tid(3)), 9, message=3)
         self.assertEqual([(r.msg, r.args) for r in handler.records],
                          [('Missed change %s', (3L,))])
+        handler.uninstall()
+
+    def test_catch_up_limit_extra(self):
+        handler = InstalledHandler(__name__.rsplit('.', 2)[0] + '.updater')
+        self.drop_trigger()
+        t=0
+        for o in range(400):
+            if o % 70 == 0:
+                t += 1
+            self.store(t, o, a=o, t=t)
+        self.start_updater()
+        wait((lambda : self.last_tid(5)), 9, message=1)
+        self.assertEqual([(r.msg, r.args) for r in handler.records[:1]],
+                         [('Catch up halting after %s updates, tid %s',
+                           (350, '5'))])
+        wait((lambda : self.last_tid(6)), 9)
+        handler.uninstall()
+
+    def test_catch_up_limit_exact(self):
+        handler = InstalledHandler(__name__.rsplit('.', 2)[0] + '.updater')
+        self.drop_trigger()
+        t=0
+        for o in range(400):
+            if o % 100 == 0:
+                t += 1
+            self.store(t, o, a=o, t=t)
+        self.start_updater()
+        wait((lambda : self.last_tid(4)), 9, message=1)
+        self.assertEqual([(r.msg, r.args) for r in handler.records[:1]],
+                         [('Catch up halting after %s updates, tid %s',
+                           (300, '3'))])
+        wait((lambda : self.last_tid(4)), 9, message=2)
         handler.uninstall()
 
 def pr(fmt, *args):
     print(fmt % args)
     traceback.print_exc()
-
