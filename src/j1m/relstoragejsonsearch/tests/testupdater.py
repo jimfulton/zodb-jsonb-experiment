@@ -65,6 +65,10 @@ class Tests(unittest.TestCase):
         else:
             return tid
 
+    def search(self, where):
+        self.ex("select zoid from object_json where %s" % where)
+        return list(self.cursor.fetchall())
+
     def test_basic(self):
         with mock.patch("j1m.relstoragejsonsearch.updater.logger") as logger:
             logger.exception.side_effect = pr
@@ -85,18 +89,12 @@ class Tests(unittest.TestCase):
             wait((lambda : self.last_tid(5)), 9, 5)
 
             # Make sure data were stored correctly:
-            self.ex(
-                """select zoid from object_json where state @> '{"b": 1}'::jsonb
-                """)
-            self.assertEqual(list(self.cursor.fetchall()), [(1,)])
-            self.ex(
-                """select zoid from object_json where state @> '{"b": 4}'::jsonb
-                """)
-            self.assertEqual(list(self.cursor.fetchall()), [(2,)])
-            self.ex(
-                """select zoid from object_json where state @> '{"n": 3}'::jsonb
-                """)
-            self.assertEqual(list(self.cursor.fetchall()), [(3,)])
+            self.assertEqual(self.search("""state @> '{"b": 1}'::jsonb"""),
+                             [(1,)])
+            self.assertEqual(self.search("""state @> '{"b": 4}'::jsonb"""),
+                             [(2,)])
+            self.assertEqual(self.search("""state @> '{"n": 3}'::jsonb"""),
+                             [(3,)])
 
 
     def test_warn_when_no_trigger(self):
