@@ -83,9 +83,9 @@ class Tests(unittest.TestCase):
             self.store(2, 1, a=1, b=1)
             self.store(2, 2, a=2, b=2)
             self.start_updater()
-            wait((lambda : self.last_tid(2)), 9, message=2)
+            wait((lambda : self.last_tid(2)), 9999, message=2)
             self.store(3, 2, a=3, b=3)
-            wait((lambda : self.last_tid(3)), 9, message=3)
+            wait((lambda : self.last_tid(3)), 9999, message=3)
             self.store(4, 2, a=4, b=4)
             wait((lambda : self.last_tid(3)), 9, message=4)
             self.stop_updater()
@@ -112,7 +112,7 @@ class Tests(unittest.TestCase):
         self.drop_trigger()
         self.store(3, 2, a=3)
         wait((lambda : self.last_tid(3)), 9, message=3)
-        self.assertEqual([(r.msg, r.args) for r in handler.records],
+        self.assertEqual([(r.msg, r.args) for r in handler.records[2:]],
                          [('Missed change %s', (3L,))])
         handler.uninstall()
 
@@ -127,11 +127,11 @@ class Tests(unittest.TestCase):
 
         self.start_updater()
         wait((lambda : self.last_tid(5)), 9, message=1)
-        self.assertEqual([(r.msg, r.args) for r in handler.records[:1]],
+        self.assertEqual([(r.msg, r.args) for r in handler.records[2:3]],
                          [('Catch up halting after %s updates, tid %s',
                            (350, '5'))])
         wait((lambda : self.last_tid(12)), 9)
-        self.assertEqual([(r.msg, r.args) for r in handler.records[1:2]],
+        self.assertEqual([(r.msg, r.args) for r in handler.records[3:4]],
                          [('Catch up halting after %s updates, tid %s',
                            (350, '10'))])
         handler.uninstall()
@@ -146,7 +146,7 @@ class Tests(unittest.TestCase):
             self.store(t, o, a=o, t=t)
         self.start_updater()
         wait((lambda : self.last_tid(4)), 9, message=1)
-        self.assertEqual([(r.msg, r.args) for r in handler.records[:1]],
+        self.assertEqual([(r.msg, r.args) for r in handler.records[2:3]],
                          [('Catch up halting after %s updates, tid %s',
                            (300, '3'))])
         wait((lambda : self.last_tid(4)), 9, message=2)
