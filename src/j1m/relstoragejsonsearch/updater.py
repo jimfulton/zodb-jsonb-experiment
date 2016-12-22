@@ -24,9 +24,12 @@ parser.add_argument('-t', '--poll-timeout', type=int, default=30,
                     help='Change-poll timeout, in seconds')
 parser.add_argument('-m', '--transaction-size-limit', type=int, default=100000,
                     help='Transaction size limit (aproximate)')
+parser.add_argument(
+    '-l', '--logging-configuration', default='info',
+    help='Logging configuration file path, or a logging level name')
 
 updates_sql = """
-select zoid, tid, state from object_state where tid > %s order by tid'
+select zoid, tid, state from object_state where tid > %s order by tid
 """
 
 insert_sql = """
@@ -80,9 +83,7 @@ def catch_up(conn, ex, start_tid, limit):
         updates = conn.cursor('object_state_updates')
         updates.itersize = 100
         try:
-            updates.execute(
-                'select tid, zoid, state from object_state where tid > %s',
-                (start_tid,))
+            updates.execute(updates_sql, (start_tid,))
         except Exception:
             logger.exception("Getting updates after %s", start_tid)
             ex('rollback')
@@ -162,15 +163,27 @@ def listener(url, timeout=30):
                 notify = conn.notifies.pop(0)
                 yield notify.payload
 
+logging_levels = 'DEBUG INFO WARNING ERROR CRITICAL'.split()
 
 def main(args=None):
     options = parser.parse_args(args)
+
+    if options.logging_configuration.upper() in logging_levels:
+        logging.basicConfig(level=options.logging_configuration.upper())
+    else:
+        with open(options.logging_configuration) as f:
+            from ZConfig import configureLoggers
+            configureLoggers(f.read())
+
+    logger.info("Starting updater")
+
     conn = psycopg2.connect(options.url)
     cursor = conn.cursor()
     ex = cursor.execute
 
     ex("select tid from object_json_tid")
     [[tid]] = cursor.fetchall()
+    logger.info("Initial tid " + str(tid))
 
 
     tid = catch_up(conn, ex, tid, options.transaction_size_limit)
