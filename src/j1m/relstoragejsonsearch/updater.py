@@ -29,7 +29,7 @@ parser.add_argument(
     help='Logging configuration file path, or a logging level name')
 
 updates_sql = """
-select zoid, tid, state from object_state where tid > %s order by tid
+select tid, zoid, state from object_state where tid > %s order by tid
 """
 
 insert_sql = """
