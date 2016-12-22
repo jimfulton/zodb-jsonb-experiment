@@ -132,8 +132,6 @@ def catch_up(conn, ex, start_tid, limit):
                         n += 1
                     except Exception:
                         ex("rollback to savepoint s")
-                        import pdb; pdb.set_trace()
-                        raise
                         logger.exception("Failed tid=%s, zoid=%s",
                                          *d[:2])
     finally:
@@ -175,7 +173,7 @@ def main(args=None):
     [[tid]] = cursor.fetchall()
 
 
-    catch_up(conn, ex, tid, options.transaction_size_limit)
+    tid = catch_up(conn, ex, tid, options.transaction_size_limit)
     first = True
     for payload in listener(options.url, options.poll_timeout):
         if payload == 'STOP':

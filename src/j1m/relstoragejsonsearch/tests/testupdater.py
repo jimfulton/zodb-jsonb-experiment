@@ -120,16 +120,20 @@ class Tests(unittest.TestCase):
         handler = InstalledHandler(__name__.rsplit('.', 2)[0] + '.updater')
         self.drop_trigger()
         t=0
-        for o in range(400):
+        for o in range(800):
             if o % 70 == 0:
                 t += 1
             self.store(t, o, a=o, t=t)
+
         self.start_updater()
         wait((lambda : self.last_tid(5)), 9, message=1)
         self.assertEqual([(r.msg, r.args) for r in handler.records[:1]],
                          [('Catch up halting after %s updates, tid %s',
                            (350, '5'))])
-        wait((lambda : self.last_tid(6)), 9)
+        wait((lambda : self.last_tid(12)), 9)
+        self.assertEqual([(r.msg, r.args) for r in handler.records[1:2]],
+                         [('Catch up halting after %s updates, tid %s',
+                           (350, '10'))])
         handler.uninstall()
 
     def test_catch_up_limit_exact(self):
