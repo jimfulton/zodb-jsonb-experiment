@@ -1,78 +1,11 @@
 import mock
-import os
-import persistent
-import psycopg2
-import sys
-import threading
 import traceback
-import unittest
-import ZODB.serialize
 from zope.testing.loggingsupport import InstalledHandler
 from zope.testing.wait import wait
 
-from .. import updater
+from . import pgbase
 
-class O(persistent.Persistent):
-
-    def __init__(self, kw):
-        self.__dict__.update(kw)
-
-class Tests(unittest.TestCase):
-
-    def setUp(self):
-        conn = self.conn = psycopg2.connect('')
-        conn.autocommit = True
-        cursor = self.cursor = conn.cursor()
-        ex = self.ex = cursor.execute
-        self.tearDown(True)
-        ex("create table object_state"
-           " (zoid bigint primary key, tid bigint, state bytea)")
-        with open(os.path.join(os.path.dirname(__file__),
-                               '..', 'object_json.sql')) as f:
-            ex(f.read())
-
-    def tearDown(self, setup=False):
-        self.ex("drop table if exists object_state cascade")
-        self.ex("drop table if exists object_json cascade")
-        self.ex("drop table if exists object_json_tid cascade")
-        self.ex("drop function if exists notify_object_state_changed() cascade")
-        if not setup:
-            self.stop_updater()
-
-    def store(self, tid, oid, **data):
-        writer = ZODB.serialize.ObjectWriter()
-        p = updater.bytea_hex(writer.serialize(O(data)))
-        self.ex("insert into object_state values(%s, %s, %s)"
-                " on conflict (zoid)"
-                " do update set tid=excluded.tid, state=excluded.state",
-                (oid, tid, p))
-
-    def start_updater(self):
-        thread = threading.Thread(
-            target=updater.main, args=(['', '-t1', '-m200'],))
-        thread.daemon = True
-        thread.start()
-        self.thread = thread
-
-    def stop_updater(self):
-        self.ex("notify object_state_changed, 'STOP'")
-        self.thread.join(99999)
-
-    def drop_trigger(self):
-        self.ex("drop trigger trigger_notify_object_state_changed"
-                " on object_state")
-
-    def last_tid(self, expect=None):
-        self.ex("select tid from object_json_tid")
-        [[tid]] = self.cursor.fetchall()
-        if expect is not None:
-            return expect == tid
-        else:
-            return tid
-
-    def search(self, where):
-        self.ex("select zoid from object_json where %s" % where)
-        return list(self.cursor.fetchall())
+class Tests(pgbase.PGTestBase):
 
     def test_basic(self):
         with mock.patch("j1m.relstoragejsonsearch.updater.logger") as logger:
