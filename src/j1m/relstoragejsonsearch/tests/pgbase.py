@@ -4,6 +4,7 @@ import psycopg2
 import threading
 import unittest
 import ZODB.serialize
+from zope.testing.wait import wait
 
 from .. import updater
 
@@ -22,23 +23,25 @@ class PGTestBase(unittest.TestCase):
         cursor = self.cursor = conn.cursor()
         ex = self.ex = cursor.execute
         self.cleanup()
-        ex("create table if not exists object_state"
-           " (zoid bigint primary key, tid bigint, state bytea)")
+        self.create_object_state()
         with open(os.path.join(os.path.dirname(__file__),
                                '..', 'object_json.sql')) as f:
             ex(f.read())
 
+    def create_object_state(self):
+        self.ex("create table if not exists object_state"
+                " (zoid bigint primary key, tid bigint, state bytea)")
+
     def cleanup(self):
         for name in self.tables:
             self.ex("drop table if exists " + name + " cascade")
-        self.ex("drop sequence if exists " + name + " cascade")
+        self.ex("drop sequence if exists zoid_seq cascade")
         self.ex("drop function if exists notify_object_state_changed() cascade")
 
     def tearDown(self):
         self.cleanup()
         self.stop_updater()
         self.conn.close()
-
 
     def store(self, tid, oid, **data):
         writer = ZODB.serialize.ObjectWriter()
@@ -72,6 +75,10 @@ class PGTestBase(unittest.TestCase):
             return expect == tid
         else:
             return tid
+
+    def wait_tid(self, tid):
+        wait((lambda : self.last_tid(tid)), 9, message="waiting for %s" % tid)
+
 
     def search(self, where):
         self.ex("select zoid from object_json where %s" % where)
