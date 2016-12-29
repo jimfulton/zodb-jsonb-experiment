@@ -147,6 +147,29 @@ class Tests(unittest.TestCase):
                   (11123,), (11131,), (11132,), (11133,)]
         self.assertEqual(self.search("read", "bob"), expect)
 
+    def test_sql_retrieval(self):
+        sql = filteredsearch("select * from docs", 'read', ('bob', 'all'))
+        self.assertEqual(sql.strip().split(), expected_filtered_query)
+
+expected_filtered_query = '''
+with recursive
+     search_results as (select * from docs),
+     allowed(docid, id, parent_id, allowed ) as (
+         select docid, docid as id,
+                get_parent_id(state),
+                check_access(state, array['bob', 'all'], 'read')
+         from search_results
+      union all
+         select allowed.docid, docs.docid as id,
+                get_parent_id(docs.state),
+                check_access(docs.state, array['bob', 'all'], 'read')
+         from allowed, docs
+         where allowed.allowed is null and
+               allowed.parent_id = docs.docid
+    )
+select docid  from allowed where allowed
+'''.strip().split()
+
 
 def path(docid):
     if docid:
