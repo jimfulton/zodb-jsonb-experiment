@@ -88,7 +88,7 @@ def _try_to_close_cursor(cursor):
         pass
 
 @contextlib.contextmanager
-def search(conn, query, bufsize=20):
+def search_iterator(conn, query, bufsize=20):
     cursor = conn._storage.ex_cursor(str(time.time()))
     cursor.execute(query)
     try:
@@ -97,4 +97,24 @@ def search(conn, query, bufsize=20):
         _try_to_close_cursor(cursor)
         raise
     else:
+        _try_to_close_cursor(cursor)
+
+def search(conn, query):
+    cursor = conn._storage.ex_cursor()
+    cursor.execute(query)
+    try:
+        first = True
+        result = []
+        get = conn.ex_get
+        for r in cursor:
+            if first:
+                indexes = {d[0]: index
+                           for (index, d) in enumerate(cursor.description)}
+                zoid_index = indexes['zoid']
+                class_pickle_index = indexes['class_pickle']
+                first = False
+            ob = get(p64(r[zoid_index]), r[class_pickle_index])
+            result.append(ob)
+        return result
+    finally:
         _try_to_close_cursor(cursor)

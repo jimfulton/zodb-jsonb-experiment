@@ -37,30 +37,62 @@ class Tests(pgbase.PGTestBase):
         self.conn.transaction_manager.commit()
         return utils.u64(o._p_serial)
 
-    def test_basic_search(self):
+    def test_search_iterator(self):
+        self.start_updater()
+        for i in range(9):
+            tid = self.store(i, i=i)
+        self.wait_tid(tid)
+
+        from ..search import search_iterator
+
+        with search_iterator(
+            self.conn,
+            "select zoid, class_pickle "
+            "from object_json "
+            "where state->>'i' >= '2' and state->>'i' <= '5' "
+            "order by zoid ") as it:
+            data = [o.i for o in it]
+
+        self.assertEqual(data, [2, 3, 4, 5])
+
+        conn2 = self.db.open()
+        with search_iterator(
+            conn2,
+            "select zoid, class_pickle "
+            "from object_json "
+            "where state->>'i' >= '2' and state->>'i' <= '5' "
+            "order by zoid ",
+            bufsize=3) as it:
+            data = [o.i for o in it]
+
+        self.assertEqual(data, [2, 3, 4, 5])
+
+    def test_search(self):
         self.start_updater()
         for i in range(9):
             tid = self.store(i, i=i)
         self.wait_tid(tid)
 
         from ..search import search
-
-        with search(self.conn,
-                    "select zoid, class_pickle "
-                    "from object_json "
-                    "where state->>'i' >= '2' and state->>'i' <= '5' "
-                    "order by zoid ") as it:
-            data = [o.i for o in it]
+        data = [
+            o.i for o in search(
+                self.conn,
+                "select zoid, class_pickle "
+                "from object_json "
+                "where state->>'i' >= '2' and state->>'i' <= '5' "
+                "order by zoid ")
+            ]
 
         self.assertEqual(data, [2, 3, 4, 5])
 
         conn2 = self.db.open()
-        with search(conn2,
-                    "select zoid, class_pickle "
-                    "from object_json "
-                    "where state->>'i' >= '2' and state->>'i' <= '5' "
-                    "order by zoid ",
-                    bufsize=3) as it:
-            data = [o.i for o in it]
+        data = [
+            o.i for o in search(
+                conn2,
+                "select zoid, class_pickle "
+                "from object_json "
+                "where state->>'i' >= '2' and state->>'i' <= '5' "
+                "order by zoid ")
+            ]
 
         self.assertEqual(data, [2, 3, 4, 5])
