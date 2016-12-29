@@ -85,8 +85,8 @@ class Tests(unittest.TestCase):
     def search(self, permission, *principals):
         search = "select * from docs"
         return sorted(filteredsearch(
-            self.cursor, search, permission, principals,
-            docid='zoid'))
+            search, permission, principals,
+            docid='zoid', cursor=self.cursor))
 
     def tearDown(self):
         self.conn.close()

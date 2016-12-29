@@ -21,9 +21,9 @@ select {docid} {extra} from allowed where allowed
 """
 
 def filteredsearch(
-    cursor, search, permission, principals, extra='',
+    search, permission, principals, extra='',
     docid='docid', docs='docs', state='state', get_parent_id='get_parent_id',
-    check_access='check_access', parent_expr=None,
+    check_access='check_access', parent_expr=None, cursor=None,
     ):
     principals = repr(list(principals)).replace(',)', ')')
     sql = template.format(
@@ -40,7 +40,7 @@ def filteredsearch(
         parent_expr or "{docs}.{docid}".format(docs=docs, docid=docid),
         )
     if cursor is None:
-        print(sql)
+        return sql
     else:
         try:
             cursor.execute(sql)
