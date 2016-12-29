@@ -45,7 +45,7 @@ class Tests(unittest.TestCase):
         conn = self.conn = psycopg2.connect('')
         cursor = self.cursor = conn.cursor()
         ex = self.ex = cursor.execute
-        ex("create temp table docs (zoid int, state jsonb)")
+        ex("create temp table docs (zoid int, state jsonb, x text)")
         ex(check_access)
         ex(get_parent_id)
 
@@ -53,8 +53,8 @@ class Tests(unittest.TestCase):
 
         def newdoc(docid, parent_docid):
             docs[docid] = doc = dict(__parent__ = dict(id = ['', parent_docid]))
-            ex("insert into docs values(%s, '%s')"
-               % (docid, json.dumps(doc)))
+            ex("insert into docs values(%s, '%s', '%s')"
+               % (docid, json.dumps(doc), 'x'+str(docid)))
 
         for i in range(1, 4):
             newdoc(i, 0)
@@ -82,11 +82,11 @@ class Tests(unittest.TestCase):
         self.ex("update docs set state='%s' where zoid=%s"
                 % (json.dumps(doc), docid))
 
-    def search(self, permission, *principals):
+    def search(self, permission, *principals, **kw):
         search = "select * from docs"
         return sorted(filteredsearch(
             search, permission, principals,
-            docid='zoid', cursor=self.cursor))
+            docid='zoid', cursor=self.cursor, **kw))
 
     def tearDown(self):
         self.conn.close()
@@ -150,6 +150,16 @@ class Tests(unittest.TestCase):
     def test_sql_retrieval(self):
         sql = filteredsearch("select * from docs", 'read', ('bob', 'all'))
         self.assertEqual(sql.strip().split(), expected_filtered_query)
+
+    def test_extra(self):
+        self.acl(111, [('Allow', "bob", "read")])
+
+        expect = [(111, 'x111'), (1111, 'x1111'),
+                  (1112, 'x1112'), (1113, 'x1113'), (11111, 'x11111'),
+                  (11112, 'x11112'), (11113, 'x11113'), (11121, 'x11121'),
+                  (11122, 'x11122'), (11123, 'x11123'),
+                  (11131, 'x11131'), (11132, 'x11132'), (11133, 'x11133')]
+        self.assertEqual(self.search("read", "bob", extra='x'), expect)
 
 expected_filtered_query = '''
 with recursive
