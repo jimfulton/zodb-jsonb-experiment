@@ -85,6 +85,22 @@ class Tests(pgbase.PGTestBase):
         wait((lambda : self.last_tid(4)), 9, message=2)
         handler.uninstall()
 
+    def test_skip_Uninteresting(self):
+        import BTrees.OOBTree
+        import ZODB.blob
+        self.start_updater()
+        self.store_ob(1, 1, BTrees.OOBTree.BTree())
+        self.store_ob(2, 2, ZODB.blob.Blob())
+        self.wait_tid(2)
+        self.ex("select zoid from object_json")
+        self.assertEqual(list(self.cursor), [])
+        self.store_ob(3, 1, BTrees.OOBTree.BTree())
+        self.store_ob(4, 2, ZODB.blob.Blob())
+        self.store(5, 3, n=1)
+        self.wait_tid(5)
+        self.ex("select zoid from object_json")
+        self.assertEqual(list(self.cursor), [(3L,)])
+
 def pr(fmt, *args):
     print(fmt % args)
     traceback.print_exc()

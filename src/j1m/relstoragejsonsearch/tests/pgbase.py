@@ -43,13 +43,16 @@ class PGTestBase(unittest.TestCase):
         self.stop_updater()
         self.conn.close()
 
-    def store(self, tid, oid, **data):
+    def store_ob(self, tid, oid, ob):
         writer = ZODB.serialize.ObjectWriter()
-        p = updater.bytea_hex(writer.serialize(O(data)))
+        p = updater.bytea_hex(writer.serialize(ob))
         self.ex("insert into object_state values(%s, %s, %s)"
                 " on conflict (zoid)"
                 " do update set tid=excluded.tid, state=excluded.state",
                 (oid, tid, p))
+
+    def store(self, tid, oid, **data):
+        self.store_ob(tid, oid, O(data))
 
     thread = None
     def start_updater(self):

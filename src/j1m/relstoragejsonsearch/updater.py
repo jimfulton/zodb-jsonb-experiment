@@ -10,9 +10,10 @@ import psycopg2
 import Queue
 import re
 import select
+from cStringIO import StringIO
 import zlib
 
-from .jsonpickle import record
+from .jsonpickle import JsonUnpickler
 
 logger = logging.getLogger(__name__)
 
@@ -41,15 +42,20 @@ do update set class_name   = excluded.class_name,
               state        = excluded.state
 """
 
+skip_class = re.compile('BTrees[.]|ZODB.blob').match
+
 def bytea_hex(bytes):
     return b'\\x' + binascii.b2a_hex(bytes)
 
 def jsonify(item):
-    zoid, p = item
+    tid, zoid, p = item
     p = p[:] # Convert read buffer to bytes
-    klass, class_pickle_length, state = record(p)
+
+
+    f = StringIO(p)
+    unpickler = JsonUnpickler(f)
+    klass = unpickler.load()
     klass = json.loads(klass)
-    class_pickle = bytea_hex(p[:class_pickle_length])
     if isinstance(klass, list):
         klass, args = klass
         if isinstance(klass, list):
@@ -58,6 +64,14 @@ def jsonify(item):
             class_name = klass['name']
     else:
         class_name = klass['name']
+
+    if skip_class(class_name):
+        return None
+
+    class_pickle_length = f.tell()
+    class_pickle = bytea_hex(p[:class_pickle_length])
+
+    state = unpickler.load()
 
     # XXX This should be pluggable
     if class_name == 'karl.content.models.adapters._CachedData':
@@ -74,7 +88,7 @@ def jsonify(item):
     # will reject them.
     state = unicode_surrogates.sub(' ', state)
 
-    return zoid, class_name, class_pickle, state
+    return tid, zoid, class_name, class_pickle, state
 
 def catch_up(conn, ex, start_tid, limit):
     tid = ltid = start_tid
@@ -110,12 +124,16 @@ def catch_up(conn, ex, start_tid, limit):
                 else:
                     ltid = tid
 
+            data = [j for j in (jsonify(d) for d in data) if j]
+            if not data:
+                continue
+
             # First, try a bulk insert.
             try:
                 ex("savepoint s")
                 ex(insert_sql %
                    ', '.join(
-                       [updates.mogrify('(%s, %s, %s, %s)', jsonify(d[1:]))
+                       [updates.mogrify('(%s, %s, %s, %s)', d[1:])
                         for d in data])
                    )
                 ex('release savepoint s')
@@ -128,7 +146,7 @@ def catch_up(conn, ex, start_tid, limit):
                     try:
                         ex("savepoint s")
                         ex(insert_sql % updates.mogrify('(%s, %s, %s, %s)',
-                                                        jsonify(d[1:])))
+                                                        d[1:]))
                         ex('release savepoint s')
                         n += 1
                     except Exception:
