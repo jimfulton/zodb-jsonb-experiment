@@ -47,7 +47,7 @@ Test application
 ----------------
 
 The application used to test the approach is a content-management
-system build with `Pyramid
+system built with `Pyramid
 <http://docs.pylonsproject.org/projects/pyramid/en/latest/>`_.  This
 is an application that has been in production for some time.  Analysis
 was performed against a snapshot of the application's database.
@@ -209,7 +209,7 @@ required accessing other objects:
 
 In both of these cases, we have to traverse objects to get the data we
 need. Because I used expression indexes, we do this traversal when
-indexes are build and the traversal is cached for us.
+indexes are built and the traversal is cached for us.
 
 Consider the ``CommunityFile`` case, for example. When we add or
 update a ``CommunityFile``, the text index is updated.  If the
@@ -649,18 +649,18 @@ asynchronously.
      Persistent-object class name. Useful for type-specific logic.
 
   class_pickle: bytea
-     A small pickle needed to instantiate ghosts.  This will be null
-     except when there are class_arguments.
+     A small pickle needed to instantiate ghosts.
 
   state: jsonb
      The object state.
 
-- Add a trigger on object_state that notifies: ``zodb_transaction`` with the
-  of the tid (as a string of a bigint).
+- Add a trigger on insert or upodate on object_state that notifies:
+  ``object_state_changed`` with the of the tid (as a string of a
+  bigint).
 
 - Long-running process that:
 
-  - Listens for ``zodb_transaction`` notifications with poll on
+  - Listens for ``object_state_changed`` notifications with poll on
     timeout.  (It will log notifications missed, if any.)
 
   - Populates ``object_json`` using data for new transactions from
@@ -669,12 +669,17 @@ asynchronously.
   - On startup, catches up any data in ``object_state`` not in
     ``object_json`` (based on tids.)
 
-- Provide a simple query API
+- Provide two simple query APIs
 
-  - Takes a postgres query that results in columns ``zoid``,
-    ``class_name`` and ``class_pickle``.
+  - Takes a postgres query that results in columns ``zoid`` and
+    ``class_pickle``.
 
-  - Returns an object iterator.
+  - Add a ZODB API similar to ``get``, but that accepts a class pickle
+    so it can create ghosts without database loads.
+
+  - Simple API that returns a sequence of obejcts that match a query.
+
+  - Iterator API that returns an object iterator.
 
     - Uses `server-side cursors
       <http://initd.org/psycopg/docs/usage.html#server-side-cursors>`_
@@ -685,13 +690,28 @@ asynchronously.
       prefetch API before objects are accessed by the iterator
       [#but-no-prefetch]_.
 
-    - We will extend ZODB's ``Connection.get`` method to accept a
-      ghost pickle so that it can create ghosts without doing database
-      loads.
-
 - Leverage query API in an application as an alternative to
   catalog queries and compare results (accuracy and efficiency).
 
+Status
+======
+
+- Implented `process for populating object_json
+  <src/j1m/relstoragejsonsearch/updater.py>`_.
+
+  Note that relevent code was copied from the ``xpickle`` package and
+  customized as described in phase 0.
+
+- Implemented `search APIs `src/j1m/relstoragejsonsearch/search.py>`_.
+
+  - Iterator API seems ill conceived.  Batching is more likely to be
+    done in SQL.
+
+- Converted an application search from a catalog search to and SQL search.
+
+  SQL-bases search was an order of magnitude faster.
+
+- Will continue converting searches.
 
 .. [#undefined-order] To be more precise, the order is
    undefined. There may actually be a predictable order, but that
