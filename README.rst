@@ -694,7 +694,7 @@ asynchronously.
   catalog queries and compare results (accuracy and efficiency).
 
 Status
-======
+------
 
 - Implented `process for populating object_json
   <src/j1m/relstoragejsonsearch/updater.py>`_.
