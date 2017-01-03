@@ -702,7 +702,7 @@ Status
   Note that relevent code was copied from the ``xpickle`` package and
   customized as described in phase 0.
 
-- Implemented `search APIs `src/j1m/relstoragejsonsearch/search.py>`_.
+- Implemented `search APIs <src/j1m/relstoragejsonsearch/search.py>`_.
 
   - Iterator API seems ill conceived.  Batching is more likely to be
     done in SQL.
