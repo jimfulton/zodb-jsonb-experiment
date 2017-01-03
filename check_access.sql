@@ -5,7 +5,7 @@ create or replace function check_access(
   returns bool as $$
 declare
   acl jsonb;
-  want text[] := array[permission, '*'];
+  want text[] := array[permission, '::'];
 begin
   acl := state -> '__acl__';
   if acl is null then
