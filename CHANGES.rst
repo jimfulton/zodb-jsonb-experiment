@@ -1,0 +1,10 @@
+Changes
+*******
+
+0.1.0 (2017-01-05)
+==================
+
+- The updater now setups up object_json etc if it doesn't exist.
+
+- Fixed: the search API didn't provide a way to supply psycopg2
+  statement arguments.
