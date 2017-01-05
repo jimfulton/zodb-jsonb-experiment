@@ -1,3 +1,4 @@
+import json
 import mock
 import traceback
 from zope.testing.loggingsupport import InstalledHandler
@@ -102,6 +103,31 @@ class Tests(pgbase.PGTestBase):
         self.wait_tid(5)
         self.ex("select zoid from object_json")
         self.assertEqual(list(self.cursor), [(3L,)])
+
+    def test_custom_transformations(self):
+        # We can supply a trandformation function that transforms data
+        # after it has been converted to json.
+        self.start_updater(
+            '-xj1m.relstoragejsonsearch.tests.testupdater:custom')
+        self.store(1, 1, a=1)
+        self.wait_tid(1)
+        self.ex("select state from object_json")
+        [[state]] = self.cursor
+        self.assertEqual(
+            state,
+            {u'A': 1,
+             u'class_name': u'j1m.relstoragejsonsearch.tests.pgbase.O',
+             u'zoid': 1})
+
+def custom(zoid, class_name, state):
+    state = json.loads(state)
+    state = {
+        k.upper(): v
+        for k, v in state.items()
+        }
+    state['class_name'] = class_name
+    state['zoid'] = zoid
+    return state
 
 def pr(fmt, *args):
     print(fmt % args)

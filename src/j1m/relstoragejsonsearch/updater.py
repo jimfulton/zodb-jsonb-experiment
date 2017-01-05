@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 
 unicode_surrogates = re.compile(r'\\ud[89a-f][0-9a-f]{2,2}', flags=re.I)
 
+def global_object(name):
+    mod, expr = name.split(':')
+    return eval(expr, __import__(mod, {}, {}, ['*']).__dict__)
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('url', help='Postgresql connection url')
 parser.add_argument('-t', '--poll-timeout', type=int, default=30,
@@ -28,6 +32,15 @@ parser.add_argument('-m', '--transaction-size-limit', type=int, default=100000,
 parser.add_argument(
     '-l', '--logging-configuration', default='info',
     help='Logging configuration file path, or a logging level name')
+
+parser.add_argument(
+    '-x', '--transformation', type=global_object,
+    help='''State-transformation function (module:expr)
+
+A function that is called with zoid, class_name, and state and returns
+a new state.
+''')
+
 
 updates_sql = """
 select tid, zoid, state from object_state where tid > %s order by tid
@@ -47,7 +60,7 @@ skip_class = re.compile('BTrees[.]|ZODB.blob').match
 def bytea_hex(bytes):
     return b'\\x' + binascii.b2a_hex(bytes)
 
-def jsonify(item):
+def jsonify(item, xform):
     tid, zoid, p = item
     p = p[:] # Convert read buffer to bytes
 
@@ -72,17 +85,11 @@ def jsonify(item):
     class_pickle = bytea_hex(p[:class_pickle_length])
 
     state = unpickler.load()
-
-    # XXX This should be pluggable
-    if class_name == 'karl.content.models.adapters._CachedData':
-        state = json.loads(state)
-        text = zlib.decompress(state['data']['hex'].decode('hex'))
-        try:
-            text = text.decode(
-                state.get('encoding', 'ascii')).replace('\x00', '')
-        except UnicodeDecodeError:
-            text = ''
-        state = json.dumps(dict(text=text))
+    xstate = xform(zoid, class_name, state)
+    if xstate is not state:
+        state = xstate
+        if not isinstance(state, bytes):
+            state = json.dumps(state)
 
     # Remove unicode surrogate strings, as postgres utf-8
     # will reject them.
@@ -90,7 +97,7 @@ def jsonify(item):
 
     return tid, zoid, class_name, class_pickle, state
 
-def catch_up(conn, ex, start_tid, limit):
+def catch_up(conn, ex, start_tid, limit, xform):
     tid = ltid = start_tid
     ex('begin')
     try:
@@ -124,7 +131,7 @@ def catch_up(conn, ex, start_tid, limit):
                 else:
                     ltid = tid
 
-            data = [j for j in (jsonify(d) for d in data) if j]
+            data = [j for j in (jsonify(d, xform) for d in data) if j]
             if not data:
                 continue
 
@@ -200,6 +207,10 @@ def main(args=None):
             from ZConfig import configureLoggers
             configureLoggers(f.read())
 
+    xform = options.transformation
+    if xform is None:
+        xform = default_transformation
+
     logger.info("Starting updater")
 
     conn = psycopg2.connect(options.url)
@@ -216,12 +227,12 @@ def main(args=None):
     logger.info("Initial tid " + str(tid))
 
 
-    tid = catch_up(conn, ex, tid, options.transaction_size_limit)
+    tid = catch_up(conn, ex, tid, options.transaction_size_limit, xform)
     first = True
     for payload in listener(options.url, options.poll_timeout):
         if payload == 'STOP':
             break
-        new_tid = catch_up(conn, ex, tid, options.transaction_size_limit)
+        new_tid = catch_up(conn, ex, tid, options.transaction_size_limit, xform)
         if new_tid > tid:
             tid = new_tid
             if payload is None and not first:
@@ -229,3 +240,19 @@ def main(args=None):
                 # expected the first time.
                 logger.warning("Missed change %s", tid)
         first = False
+
+def default_transformation(zoid, class_name, state):
+    # XXX This function will be a noop.
+
+    if class_name == 'karl.content.models.adapters._CachedData':
+        state = json.loads(state)
+        text = zlib.decompress(state['data']['hex'].decode('hex'))
+        try:
+            text = text.decode(
+                state.get('encoding', 'ascii')).replace('\x00', '')
+        except UnicodeDecodeError:
+            text = ''
+
+        state = dict(text=text)
+
+    return state

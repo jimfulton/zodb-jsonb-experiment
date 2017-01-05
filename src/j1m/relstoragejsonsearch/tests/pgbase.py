@@ -51,9 +51,9 @@ class PGTestBase(unittest.TestCase):
         self.store_ob(tid, oid, O(data))
 
     thread = None
-    def start_updater(self):
+    def start_updater(self, *args):
         thread = threading.Thread(
-            target=updater.main, args=(['', '-t1', '-m200'],))
+            target=updater.main, args=(['', '-t1', '-m200'] + list(args),))
         thread.daemon = True
         thread.start()
         self.thread = thread
