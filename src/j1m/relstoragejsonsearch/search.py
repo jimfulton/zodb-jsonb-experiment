@@ -88,9 +88,9 @@ def _try_to_close_cursor(cursor):
         pass
 
 @contextlib.contextmanager
-def search_iterator(conn, query, bufsize=20):
+def search_iterator(conn, query, args, bufsize=20):
     cursor = conn._storage.ex_cursor(str(time.time()))
-    cursor.execute(query)
+    cursor.execute(query, args)
     try:
         yield _result_iterator(conn, cursor, bufsize)
     except Exception:
@@ -99,9 +99,9 @@ def search_iterator(conn, query, bufsize=20):
     else:
         _try_to_close_cursor(cursor)
 
-def search(conn, query):
+def search(conn, query, *args):
     cursor = conn._storage.ex_cursor()
-    cursor.execute(query)
+    cursor.execute(query, args)
     try:
         first = True
         result = []

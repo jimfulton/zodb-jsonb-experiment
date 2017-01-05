@@ -49,8 +49,10 @@ class Tests(pgbase.PGTestBase):
             self.conn,
             "select zoid, class_pickle "
             "from object_json "
-            "where state->>'i' >= '2' and state->>'i' <= '5' "
-            "order by zoid ") as it:
+            "where state->>'i' >= %s and state->>'i' <= %s "
+            "order by zoid ",
+            ('2', '5'),
+            ) as it:
             data = [o.i for o in it]
 
         self.assertEqual(data, [2, 3, 4, 5])
@@ -60,8 +62,9 @@ class Tests(pgbase.PGTestBase):
             conn2,
             "select zoid, class_pickle "
             "from object_json "
-            "where state->>'i' >= '2' and state->>'i' <= '5' "
+            "where state->>'i' >= %s and state->>'i' <= %s "
             "order by zoid ",
+            ('2', '5'),
             bufsize=3) as it:
             data = [o.i for o in it]
 
@@ -79,8 +82,8 @@ class Tests(pgbase.PGTestBase):
                 self.conn,
                 "select zoid, class_pickle "
                 "from object_json "
-                "where state->>'i' >= '2' and state->>'i' <= '5' "
-                "order by zoid ")
+                "where state->>'i' >= %s and state->>'i' <= %s "
+                "order by zoid ", '2', '5')
             ]
 
         self.assertEqual(data, [2, 3, 4, 5])
@@ -91,8 +94,8 @@ class Tests(pgbase.PGTestBase):
                 conn2,
                 "select zoid, class_pickle "
                 "from object_json "
-                "where state->>'i' >= '2' and state->>'i' <= '5' "
-                "order by zoid ")
+                "where state->>'i' >= %s and state->>'i' <= %s "
+                "order by zoid ", '2', '5')
             ]
 
         self.assertEqual(data, [2, 3, 4, 5])
