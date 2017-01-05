@@ -183,6 +183,13 @@ def listener(url, timeout=30):
 
 logging_levels = 'DEBUG INFO WARNING ERROR CRITICAL'.split()
 
+def setup_object_json(cursor):
+    import os
+    ex = cursor.execute
+    with open(os.path.join(os.path.dirname(__file__), 'object_json.sql')) as f:
+        ex(f.read())
+        ex('commit')
+
 def main(args=None):
     options = parser.parse_args(args)
 
@@ -198,6 +205,11 @@ def main(args=None):
     conn = psycopg2.connect(options.url)
     cursor = conn.cursor()
     ex = cursor.execute
+
+    ex("select from information_schema.tables"
+       " where table_schema = 'public' AND table_name = 'object_json'")
+    if not list(cursor):
+        setup_object_json(cursor)
 
     ex("select tid from object_json_tid")
     [[tid]] = cursor.fetchall()

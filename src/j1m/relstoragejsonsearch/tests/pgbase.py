@@ -1,4 +1,3 @@
-import os
 import persistent
 import psycopg2
 import threading
@@ -24,9 +23,6 @@ class PGTestBase(unittest.TestCase):
         ex = self.ex = cursor.execute
         self.cleanup()
         self.create_object_state()
-        with open(os.path.join(os.path.dirname(__file__),
-                               '..', 'object_json.sql')) as f:
-            ex(f.read())
 
     def create_object_state(self):
         self.ex("create table if not exists object_state"
@@ -67,13 +63,23 @@ class PGTestBase(unittest.TestCase):
             self.ex("notify object_state_changed, 'STOP'")
             self.thread.join(99999)
 
+    def setup_object_json(self):
+        updater.setup_object_json(self.cursor)
+
     def drop_trigger(self):
         self.ex("drop trigger trigger_notify_object_state_changed"
                 " on object_state")
 
     def last_tid(self, expect=None):
-        self.ex("select tid from object_json_tid")
-        [[tid]] = self.cursor.fetchall()
+        try:
+            self.ex("select tid from object_json_tid")
+        except Exception as err:
+            if 'object_json_tid' not in str(err):
+                raise
+            tid = 0
+        else:
+            [[tid]] = self.cursor.fetchall()
+
         if expect is not None:
             return expect == tid
         else:

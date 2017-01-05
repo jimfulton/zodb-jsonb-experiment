@@ -51,6 +51,7 @@ class Tests(pgbase.PGTestBase):
 
     def test_catch_up_limit_extra(self):
         handler = InstalledHandler(__name__.rsplit('.', 2)[0] + '.updater')
+        self.setup_object_json() # so we can drop the trigger :)
         self.drop_trigger()
         t=0
         for o in range(800):
@@ -71,6 +72,7 @@ class Tests(pgbase.PGTestBase):
 
     def test_catch_up_limit_exact(self):
         handler = InstalledHandler(__name__.rsplit('.', 2)[0] + '.updater')
+        self.setup_object_json() # so we can drop the trigger :)
         self.drop_trigger()
         t=0
         for o in range(400):
