@@ -1,6 +1,9 @@
 Changes
 *******
 
+- Added search_batch function for retrieving a batch from a search
+  *and* the total result size.
+
 - You can now supply a state-transformation function.
 
 0.1.0 (2017-01-05)

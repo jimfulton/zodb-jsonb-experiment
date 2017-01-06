@@ -88,14 +88,43 @@ class Tests(pgbase.PGTestBase):
 
         self.assertEqual(data, [2, 3, 4, 5])
 
+        # separate conn (to make sure we get new ghosts:
+
         conn2 = self.db.open()
         data = [
             o.i for o in search(
                 conn2,
                 "select zoid, class_pickle "
                 "from object_json "
-                "where state->>'i' >= %s and state->>'i' <= %s "
-                "order by zoid ", '2', '5')
+                "where state->>'i' >= %(a)s and state->>'i' <= %(b)s "
+                "order by zoid ", a='2', b='5') # Look! keyword arguments
             ]
 
         self.assertEqual(data, [2, 3, 4, 5])
+
+    def test_search_batch(self):
+        self.start_updater()
+        for i in range(99):
+            tid = self.store(i, i=i)
+        self.wait_tid(tid)
+
+        from ..search import search_batch
+
+        conn2 = self.db.open()
+
+        total, batch = search_batch(
+            conn2,
+            "select zoid, class_pickle "
+            "from object_json "
+            "where (state->>'i')::int >= %(a)s and (state->>'i')::int <= %(b)s "
+            "order by zoid ",
+            dict(a=2, b=90),
+            10, 20
+            )
+        self.assertEqual(total, 89)
+        data = [o.i for o in batch]
+
+        self.assertEqual([o.i for o in batch], list(range(12, 32)))
+
+        # We didn't end up with all of the objects getting loaded:
+        self.assertEqual(len(conn2._cache), 20)

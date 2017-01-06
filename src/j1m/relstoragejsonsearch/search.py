@@ -99,9 +99,27 @@ def search_iterator(conn, query, args, bufsize=20):
     else:
         _try_to_close_cursor(cursor)
 
-def search(conn, query, *args):
+
+def search_batch(conn, query, args, batch_start, batch_size):
+    query = """
+    select zoid, class_pickle, count(*) over()
+    from (%s) _
+    offset %s limit %s
+    """ % (query, batch_start, batch_size)
+
     cursor = conn._storage.ex_cursor()
     cursor.execute(query, args)
+    get = conn.ex_get
+    try:
+        result = [get(p64(zoid), class_pickle)
+                  for (zoid, class_pickle, count) in cursor]
+        return count, result
+    finally:
+        _try_to_close_cursor(cursor)
+
+def search(conn, query, *args, **kw):
+    cursor = conn._storage.ex_cursor()
+    cursor.execute(query, args or kw)
     try:
         first = True
         result = []
@@ -115,6 +133,10 @@ def search(conn, query, *args):
                 first = False
             ob = get(p64(r[zoid_index]), r[class_pickle_index])
             result.append(ob)
+
+        if result:
+            conn.prefetch(result)
+
         return result
     finally:
         _try_to_close_cursor(cursor)
