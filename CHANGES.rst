@@ -1,6 +1,9 @@
 Changes
 *******
 
+0.2.0 (2017-01-06)
+==================
+
 - Added search_batch function for retrieving a batch from a search
   *and* the total result size.
 

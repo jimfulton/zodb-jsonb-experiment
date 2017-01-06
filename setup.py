@@ -1,4 +1,4 @@
-name, version = 'j1m.relstoragejsonsearch', '0.1.0'
+name, version = 'j1m.relstoragejsonsearch', '0.2.0'
 
 install_requires = [ 'relstorage[postgresql]',
                      'setuptools', 'psycopg2', 'ZODB']
