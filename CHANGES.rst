@@ -1,6 +1,11 @@
 Changes
 *******
 
+0.2.1 (2017-01-07)
+==================
+
+- Fixed: package didn't include an sql file needed by the updater.
+
 0.2.0 (2017-01-06)
 ==================
 

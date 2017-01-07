@@ -1,4 +1,4 @@
-name, version = 'j1m.relstoragejsonsearch', '0.2.0'
+name, version = 'j1m.relstoragejsonsearch', '0.2.1'
 
 install_requires = [ 'relstorage[postgresql]',
                      'setuptools', 'psycopg2', 'ZODB']
@@ -22,7 +22,7 @@ setup(
     install_requires = install_requires,
     zip_safe = False,
     entry_points=entry_points,
-    package_data = {name: ['*.txt', '*.test', '*.html']},
+    package_data = {name: ['*.txt', '*.test', '*.html', '*.sql']},
     extras_require = extras_require,
     tests_require = extras_require['test'],
     test_suite = name+'.tests.test_suite',
