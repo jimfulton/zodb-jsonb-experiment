@@ -1,9 +1,11 @@
-"""Long-running process that updates database json representation
+from __future__ import print_function
+"""Updates database json representation
 """
 
 import argparse
 import binascii
 import contextlib
+import itertools
 import json
 import logging
 import psycopg2
@@ -35,16 +37,26 @@ parser.add_argument(
 
 parser.add_argument(
     '-x', '--transformation', type=global_object,
-    help='''State-transformation function (module:expr)
+    help='''\
+State-transformation function (module:expr)
 
 A function that is called with zoid, class_name, and state and returns
 a new state.
 ''')
 
+parser.add_argument(
+    '--redo', action='store_true',
+    help="""\
+Redo updates
 
-updates_sql = """
-select tid, zoid, state from object_state where tid > %s order by tid
-"""
+Rather than processing records written before the current tid (in
+object_json_tid), process records writen up through the current tid
+and stop.
+
+This is used to update records after changes to data
+transformations. It should be run *after* restarting the regulsr
+updater.
+""")
 
 insert_sql = """
 insert into object_json (zoid, class_name, class_pickle, state)
@@ -97,96 +109,139 @@ def jsonify(item, xform):
 
     return tid, zoid, class_name, class_pickle, state
 
-def catch_up(conn, ex, start_tid, limit, xform):
-    tid = ltid = start_tid
-    ex('begin')
+def non_empty_generator(gen):
     try:
-        updates = conn.cursor('object_state_updates')
-        updates.itersize = 100
+        first = next(gen)
+    except StopIteration:
+        return None
+    def it():
+        yield first
+        for v in gen:
+            yield v
+    return it()
+
+class Updates:
+
+    def __init__(self, conn, start_tid=-1, end_tid=None,
+                 limit=100000, poll_timeout=30, iterator_size=100):
+        self.conn = conn
+        self.cursor = conn.cursor()
+        self.ex = self.cursor.execute
+        self.tid = start_tid
+        self.follow = end_tid is None
+        self.end_tid = end_tid or 1<<62
+        self.poll_timeout = poll_timeout
+        self.limit = limit
+        self.iterator_size = iterator_size
+
+    def _batch(self):
+        tid = self.tid
+        self.ex('begin')
         try:
-            updates.execute(updates_sql, (start_tid,))
-        except Exception:
-            logger.exception("Getting updates after %s", start_tid)
-            ex('rollback')
-            return
-
-        n = 0
-        looping = True
-        while looping:
-            data = [d[1] for d in zip(range(updates.itersize), updates)]
-            if not data:
-                break
-            tid = data[-1][0]
-            if tid != ltid:
-                if n > limit:
-                    # Need to be careful to stop on tid boundary
-                    tid = ltid
-                    data = [d for d in data if d[0] == ltid]
-                    logger.info("Catch up halting after %s updates, tid %s",
-                                n + len(data), str(ltid))
-                    if data:
-                        looping = False
-                    else:
-                        break
-                else:
-                    ltid = tid
-
-            data = [j for j in (jsonify(d, xform) for d in data) if j]
-            if not data:
-                continue
-
-            # First, try a bulk insert.
+            updates = self.conn.cursor('object_state_updates')
+            updates.itersize = self.iterator_size
             try:
-                ex("savepoint s")
-                ex(insert_sql %
-                   ', '.join(
-                       [updates.mogrify('(%s, %s, %s, %s)', d[1:])
-                        for d in data])
-                   )
-                ex('release savepoint s')
-                n += len(data)
+                updates.execute("""\
+                select tid, zoid, state from object_state
+                where tid > %s and tid <= %s order by tid
+                """, (tid, self.end_tid))
             except Exception:
-                # Dang, fall back to individual insert so we can log
-                # individual errors:
-                ex("rollback to savepoint s")
-                for d in data:
-                    try:
-                        ex("savepoint s")
-                        ex(insert_sql % updates.mogrify('(%s, %s, %s, %s)',
-                                                        d[1:]))
-                        ex('release savepoint s')
-                        n += 1
-                    except Exception:
-                        ex("rollback to savepoint s")
-                        logger.exception("Failed tid=%s, zoid=%s",
-                                         *d[:2])
-    finally:
+                logger.exception("Getting updates after %s", tid)
+                self.ex('rollback')
+                raise
+
+            n = 0
+            for row in updates:
+                if row[0] != tid:
+                    if n >= self.limit:
+                        break
+                    tid = self.tid = row[0]
+                yield row
+                n += 1
+        finally:
+            try:
+                updates.close()
+            except Exception:
+                pass
+
+    def _listen(self):
+        conn = psycopg2.connect(self.conn.dsn)
         try:
-            updates.close()
+            conn.set_isolation_level(
+                psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+            curs = conn.cursor()
+            curs.execute("LISTEN object_state_changed")
+            timeout = self.poll_timeout
+
+            while True:
+                if select.select([conn], (), (), timeout) == ([], [], []):
+                    yield None
+                else:
+                    conn.poll()
+                    if conn.notifies:
+                        if any(n.payload == 'STOP' for n in conn.notifies):
+                            return # for tests
+                        # yield the last
+                        yield conn.notifies[-1].payload
+        finally:
+            conn.close()
+
+    def __iter__(self):
+        # Catch up:
+        while True:
+            batch = non_empty_generator(self._batch())
+            if batch is None:
+                break # caught up
+            else:
+                yield batch
+
+        if self.follow:
+            for payload in self._listen():
+                batch = non_empty_generator(self._batch())
+                if batch is not None:
+                    yield batch
+
+def update_object_json(batch, ex, mogrify, xform):
+    tid = None
+    while True:
+        data = list(itertools.islice(batch, 0, 100))
+        if not data:
+            break
+        tid = data[-1][0]
+
+        # Convert, filtering out null conversions (uninteresting classes)
+        data = [j for j in (jsonify(d, xform) for d in data) if j]
+        if not data: # all of the data was uninteresting
+            continue # but wait, there's more
+
+        # First, try a bulk insert, which is faster.
+        try:
+            ex("savepoint s")
+            ex(insert_sql %
+               ', '.join(
+                   [updates.mogrify('(%s, %s, %s, %s)', d[1:])
+                    for d in data])
+               )
+            ex('release savepoint s')
         except Exception:
-            pass
+            # Dang, fall back to individual insert so we can log
+            # individual errors:
+            ex("rollback to savepoint s")
+            for d in data:
+                try:
+                    ex("savepoint s")
+                    ex(insert_sql % mogrify('(%s, %s, %s, %s)', d[1:]))
+                    ex('release savepoint s')
+                except Exception:
+                    ex("rollback to savepoint s")
+                    logger.exception("Failed tid=%s, zoid=%s",
+                                     *d[:2])
 
-    if tid > start_tid:
-        ex("update object_json_tid set tid=%s", (tid,))
 
+    if tid is not None:
+        ex('update object_json_tid set tid=%s', (tid,))
     ex('commit')
 
-    return tid
-
-def listener(url, timeout=30):
-    conn = psycopg2.connect(url)
-    conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
-    curs = conn.cursor()
-    curs.execute("LISTEN object_state_changed")
-
-    while 1:
-        if select.select([conn], (), (), timeout) == ([], [], []):
-            yield None
-        else:
-            conn.poll()
-            while conn.notifies:
-                notify = conn.notifies.pop(0)
-                yield notify.payload
 
 logging_levels = 'DEBUG INFO WARNING ERROR CRITICAL'.split()
 
@@ -211,11 +266,11 @@ def main(args=None):
     if xform is None:
         xform = default_transformation
 
-    logger.info("Starting updater")
 
     conn = psycopg2.connect(options.url)
     cursor = conn.cursor()
     ex = cursor.execute
+    mogrify = cursor.mogrify
 
     ex("select from information_schema.tables"
        " where table_schema = 'public' AND table_name = 'object_json'")
@@ -224,35 +279,25 @@ def main(args=None):
 
     ex("select tid from object_json_tid")
     [[tid]] = cursor.fetchall()
-    logger.info("Initial tid " + str(tid))
 
+    if options.redo:
+        start_tid = -1
+        end_tid = tid
+        logger.info("Redoing through", tid)
+    else:
+        logger.info("Starting updater at %s", tid)
+        start_tid = tid
+        end_tid = None
 
-    tid = catch_up(conn, ex, tid, options.transaction_size_limit, xform)
-    first = True
-    for payload in listener(options.url, options.poll_timeout):
-        if payload == 'STOP':
-            break
-        new_tid = catch_up(conn, ex, tid, options.transaction_size_limit, xform)
-        if new_tid > tid:
-            tid = new_tid
-            if payload is None and not first:
-                # Notify timed out but there were changes.  This
-                # expected the first time.
-                logger.warning("Missed change %s", tid)
-        first = False
+    for batch in Updates(conn, start_tid, end_tid,
+                         limit=options.transaction_size_limit,
+                         poll_timeout=options.poll_timeout,
+                         ):
+        update_object_json(batch, ex, mogrify, xform)
 
 def default_transformation(zoid, class_name, state):
-    # XXX This function will be a noop.
-
-    if class_name == 'karl.content.models.adapters._CachedData':
-        state = json.loads(state)
-        text = zlib.decompress(state['data']['hex'].decode('hex'))
-        try:
-            text = text.decode(
-                state.get('encoding', 'ascii')).replace('\x00', '')
-        except UnicodeDecodeError:
-            text = ''
-
-        state = dict(text=text)
-
     return state
+
+
+if __name__ == '__main__':
+    main()

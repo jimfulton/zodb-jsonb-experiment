@@ -1,6 +1,15 @@
 Changes
 *******
 
+- Implemented a --redo option on the updater to redo old JSON conversions.
+
+- Added a generic update iterator (actually a batch iterator, where
+  each batch is a tid, zoid, state iterator) for RelStorage
+  non-history-preserving databases.
+
+- Removed some application-specific transformation logic.
+
+
 0.2.1 (2017-01-07)
 ==================
 

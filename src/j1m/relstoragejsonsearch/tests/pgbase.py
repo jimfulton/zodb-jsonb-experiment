@@ -35,8 +35,8 @@ class PGTestBase(unittest.TestCase):
         self.ex("drop function if exists notify_object_state_changed() cascade")
 
     def tearDown(self):
-        self.cleanup()
         self.stop_updater()
+        self.cleanup()
         self.conn.close()
 
     def store_ob(self, tid, oid, ob):
@@ -54,14 +54,18 @@ class PGTestBase(unittest.TestCase):
     def start_updater(self, *args):
         thread = threading.Thread(
             target=updater.main, args=(['', '-t1', '-m200'] + list(args),))
-        thread.daemon = True
+        thread.setDaemon(True)
         thread.start()
         self.thread = thread
 
     def stop_updater(self):
         if self.thread is not None:
-            self.ex("notify object_state_changed, 'STOP'")
-            self.thread.join(99999)
+            for i in range(3):
+                self.ex("notify object_state_changed, 'STOP'")
+                self.thread.join(.2)
+                if not self.thread.isAlive():
+                    self.thread = None
+                    return
 
     def setup_object_json(self):
         updater.setup_object_json(self.cursor)
