@@ -122,9 +122,26 @@ class Tests(pgbase.PGTestBase):
             10, 20
             )
         self.assertEqual(total, 89)
-        data = [o.i for o in batch]
-
         self.assertEqual([o.i for o in batch], list(range(12, 32)))
 
         # We didn't end up with all of the objects getting loaded:
         self.assertEqual(len(conn2._cache), 20)
+
+    def test_search_batch_empty(self):
+        self.start_updater()
+        tid = self.store(1)
+        self.wait_tid(tid)
+
+        from ..search import search_batch
+        conn2 = self.db.open()
+        total, batch = search_batch(
+            conn2,
+            "select zoid, class_pickle "
+            "from object_json "
+            "where (state->>'i')::int >= %(a)s and (state->>'i')::int <= %(b)s "
+            "order by zoid ",
+            dict(a=2, b=90),
+            10, 20
+            )
+        self.assertEqual(total, 0)
+        self.assertEqual(batch, [])

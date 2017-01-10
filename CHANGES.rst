@@ -1,6 +1,8 @@
 Changes
 *******
 
+- Fixed: empty results weren't handled correctly by the batch search API.
+
 0.2.1 (2017-01-07)
 ==================
 

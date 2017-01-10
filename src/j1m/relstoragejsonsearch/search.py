@@ -111,6 +111,7 @@ def search_batch(conn, query, args, batch_start, batch_size):
     cursor.execute(query, args)
     get = conn.ex_get
     try:
+        count = 0 # default if there are no results
         result = [get(p64(zoid), class_pickle)
                   for (zoid, class_pickle, count) in cursor]
         return count, result
