@@ -131,10 +131,3 @@ class JsonUnpicklerTests(unittest.TestCase):
         _ = self.load()
         _ = self.load()
 
-
-def test_suite():
-    return unittest.makeSuite(JsonUnpicklerTests)
-
-if __name__ == '__main__':
-    unittest.main(defaultTest='test_suite')
-
